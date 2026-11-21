@@ -30,10 +30,22 @@ type Storage struct {
 	lastErr map[int64]string
 	// mountCmd lets tests replace the real mount command.
 	mountCmd func(args ...string) ([]byte, error)
+	// health is what is known about each mounted share. It is refreshed in
+	// the background, so showing a page never has to wait for the NAS.
+	hmu    sync.Mutex
+	health map[string]*health
+}
+
+// health is the state of one mounted share.
+type health struct {
+	ok      bool
+	usage   *Usage
+	fails   int  // checks in a row that got no answer in time
+	probing bool // a check is still waiting for the NAS
 }
 
 func New(c *core.Core) *Storage {
-	return &Storage{c: c, lastErr: map[int64]string{}, mountCmd: func(args ...string) ([]byte, error) {
+	return &Storage{c: c, lastErr: map[int64]string{}, health: map[string]*health{}, mountCmd: func(args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		return exec.CommandContext(ctx, "mount", args...).CombinedOutput()
@@ -110,11 +122,11 @@ func (s *Storage) Shares() ([]*Share, error) {
 		out = append(out, sh)
 	}
 	for _, sh := range out {
-		sh.Connected = s.Healthy(sh.MountPoint)
-		if sh.Connected {
-			if u, err := UsageOf(sh.MountPoint); err == nil {
-				sh.Usage = &u
-			}
+		// From memory: asking the NAS here would make every page wait for it.
+		h := s.known(sh.MountPoint)
+		sh.Connected = h.ok
+		if h.ok {
+			sh.Usage = h.usage
 		} else {
 			s.mu.Lock()
 			sh.Problem = s.lastErr[sh.ID]
@@ -138,7 +150,9 @@ func (s *Storage) ShareByID(id int64) (*Share, error) {
 }
 
 // IsMounted checks /proc/mounts.
-func IsMounted(path string) bool {
+func IsMounted(path string) bool { return isMounted(path) }
+
+var isMounted = func(path string) bool {
 	b, err := os.ReadFile("/proc/mounts")
 	if err != nil {
 		return false
@@ -154,23 +168,99 @@ func IsMounted(path string) bool {
 
 func unescapeMount(s string) string { return strings.ReplaceAll(s, `\040`, " ") }
 
-// Healthy means mounted and answering within a few seconds.
-func (s *Storage) Healthy(mp string) bool {
-	if !IsMounted(mp) {
-		return false
+// statfs asks a mounted share for its free space. A variable, so tests can stand in for a NAS.
+var statfs = func(path string) (Usage, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return Usage{}, err
 	}
-	ch := make(chan bool, 1)
+	total := st.Blocks * uint64(st.Bsize)
+	return Usage{Total: total, Free: st.Bavail * uint64(st.Bsize), Used: total - st.Bfree*uint64(st.Bsize)}, nil
+}
+
+// probeWait is how long one check waits for the NAS.
+var probeWait = 5 * time.Second
+
+// probe asks one share whether it is there, and remembers the answer.
+//
+// A NAS that is busy (an app going through thousands of files) answers late
+// without being gone. So only a clear "no" counts at once; no answer in time
+// counts after three checks in a row. Otherwise ZeroOS would stop apps
+// exactly when they work hardest.
+func (s *Storage) probe(mp string) {
+	s.hmu.Lock()
+	h := s.health[mp]
+	if h == nil {
+		h = &health{}
+		s.health[mp] = h
+	}
+	first := !h.ok && h.fails == 0 && h.usage == nil
+	if !IsMounted(mp) {
+		h.ok, h.usage, h.fails = false, nil, 0
+		s.hmu.Unlock()
+		return
+	}
+	if h.probing { // the last check is still waiting: that is another late answer
+		h.fails++
+		if h.fails >= 3 {
+			h.ok = false
+		}
+		s.hmu.Unlock()
+		return
+	}
+	h.probing = true
+	s.hmu.Unlock()
+
+	type res struct {
+		u   Usage
+		err error
+	}
+	ch := make(chan res, 1)
 	go func() {
-		_, err := os.ReadDir(mp)
-		ch <- err == nil
+		u, err := statfs(mp)
+		ch <- res{u, err}
+		s.hmu.Lock()
+		h.probing = false
+		s.hmu.Unlock()
 	}()
 	select {
-	case ok := <-ch:
-		return ok
-	case <-time.After(4 * time.Second):
-		return false
+	case r := <-ch:
+		s.hmu.Lock()
+		if r.err != nil {
+			h.ok, h.usage, h.fails = false, nil, 0 // the NAS said no
+		} else {
+			u := r.u
+			h.ok, h.usage, h.fails = true, &u, 0
+		}
+		s.hmu.Unlock()
+	case <-time.After(probeWait):
+		s.hmu.Lock()
+		h.fails++
+		if first || h.fails >= 3 {
+			h.ok = false
+		}
+		s.hmu.Unlock()
 	}
 }
+
+// known returns what is remembered about a share, asking once if nothing is yet.
+func (s *Storage) known(mp string) health {
+	s.hmu.Lock()
+	h := s.health[mp]
+	s.hmu.Unlock()
+	if h == nil {
+		s.probe(mp)
+		s.hmu.Lock()
+		h = s.health[mp]
+		s.hmu.Unlock()
+	}
+	s.hmu.Lock()
+	defer s.hmu.Unlock()
+	return *h
+}
+
+// Healthy tells whether a share is mounted and answering, from memory.
+func (s *Storage) Healthy(mp string) bool { return s.known(mp).ok }
 
 func (s *Storage) credsFile(id int64) string {
 	return filepath.Join(s.c.Cfg.DataDir, "creds", fmt.Sprintf("nas-%d", id))
@@ -254,6 +344,7 @@ func (s *Storage) AddShare(name, host, share, user, pass string) (*Share, error)
 		return nil, errors.New("Connected, but this account can't write to the share. Give it write access on the NAS.")
 	}
 	_ = os.Remove(probe)
+	s.probe(mp)
 	return s.ShareByID(id)
 }
 
@@ -265,6 +356,9 @@ func (s *Storage) RemoveShare(id int64) error {
 	}
 	_ = exec.Command("umount", "-l", sh.MountPoint).Run()
 	_ = os.Remove(sh.MountPoint)
+	s.hmu.Lock()
+	delete(s.health, sh.MountPoint)
+	s.hmu.Unlock()
 	_ = os.Remove(s.credsFile(id))
 	_, err = s.c.DB.Exec(`DELETE FROM nas_shares WHERE id=?`, id)
 	return err
@@ -289,6 +383,16 @@ func (s *Storage) Reconnect(id int64) error {
 		delete(s.lastErr, id)
 	}
 	s.mu.Unlock()
+	s.hmu.Lock()
+	delete(s.health, mp) // start over: ask it fresh
+	s.hmu.Unlock()
+	s.probe(mp)
+	if err == nil && !s.Healthy(mp) {
+		err = errors.New("The NAS isn't answering.")
+		s.mu.Lock()
+		s.lastErr[id] = err.Error()
+		s.mu.Unlock()
+	}
 	return err
 }
 
@@ -309,6 +413,12 @@ func (s *Storage) KeepConnected(ctx context.Context, onChange func()) {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	check := func() {
+		// ask every share how it is, then act on what is known
+		if list, err := s.Shares(); err == nil {
+			for _, sh := range list {
+				s.probe(sh.MountPoint)
+			}
+		}
 		shares, _ := s.Shares()
 		changed := false
 		for _, sh := range shares {

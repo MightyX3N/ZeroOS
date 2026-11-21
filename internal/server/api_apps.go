@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,6 +25,7 @@ type deskApp struct {
 	Perms   []string `json:"perms"`
 	Shared  bool     `json:"shared"`
 	NoGUI   bool     `json:"noGui"`
+	Update  string   `json:"update,omitempty"` // a newer version in the store, for people who may update it
 }
 
 func (s *Server) visibleApps(u *auth.User) []*apps.App {
@@ -68,7 +71,11 @@ func (s *Server) desktop(w http.ResponseWriter, r *http.Request) {
 	list := []deskApp{}
 	attention := []map[string]string{}
 	for _, a := range s.visibleApps(u) {
-		list = append(list, deskApp{ID: a.ID, StoreID: a.StoreID, Name: a.Name, State: a.State, Problem: a.Problem, Perms: s.Auth.AppPermsFor(u, a.ID), Shared: shared[a.ID], NoGUI: a.NoGUI})
+		da := deskApp{ID: a.ID, StoreID: a.StoreID, Name: a.Name, State: a.State, Problem: a.Problem, Perms: s.Auth.AppPermsFor(u, a.ID), Shared: shared[a.ID], NoGUI: a.NoGUI}
+		if up := s.Apps.UpdateFor(a); up != nil && s.Auth.CanApp(u, a.ID, "app.update") {
+			da.Update = up.To
+		}
+		list = append(list, da)
 		switch a.State {
 		case "waiting":
 			attention = append(attention, map[string]string{"appId": a.ID, "storeId": a.StoreID, "name": a.Name, "text": a.Name + " is waiting for your NAS. It starts by itself when the NAS is back."})
@@ -248,6 +255,7 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 		"app": a, "folders": folders, "tunnel": tunnel, "people": people,
 		"perms": s.Auth.AppPermsFor(u, a.ID), "gpuAvailable": dirExists("/dev/dri"), "playitLinked": s.Playit.Linked(),
 		"playitPremium": s.Playit.Premium(), "secure": s.secureInfo(a.Port), "port": a.Port,
+		"version": a.Settings.Version, "update": s.Apps.UpdateFor(a), "undo": s.Apps.UndoFor(a), "undoDays": apps.UndoDays,
 	}
 	if inStore {
 		out["store"] = map[string]any{"shortDesc": sa.ShortDesc, "version": sa.Version, "website": sa.Website, "verified": sa.Verified}
@@ -456,3 +464,52 @@ func hostname() string {
 }
 
 var _ = storage.AppUID
+
+// appUpdate moves an app to the newer version in the store, keeping a copy to go back to.
+func (s *Server) appUpdate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, _ := s.Apps.Get(id)
+	var in struct {
+		NoUndo bool `json:"noUndo"`
+	}
+	_ = readJSON(r, &in)
+	job, err := s.Apps.Update(id, in.NoUndo)
+	var ns *apps.ErrNoSpace
+	if errors.As(err, &ns) {
+		// the page asks whether to update without a way back
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "noSpace": true})
+		return
+	}
+	s.log(r, "started an update", a.Name, id, err == nil, errText(err))
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	ok(w, map[string]string{"job": job.ID, "appId": id})
+}
+
+func (s *Server) appUndo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, _ := s.Apps.Get(id)
+	job, err := s.Apps.Undo(id)
+	s.log(r, "started undoing an update", a.Name, id, err == nil, errText(err))
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	ok(w, map[string]string{"job": job.ID, "appId": id})
+}
+
+func (s *Server) appDropUndo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, _ := s.Apps.Get(id)
+	err := s.Apps.DropUndo(id)
+	s.log(r, "deleted the copy for undoing an update", a.Name, id, err == nil, errText(err))
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	ok(w, map[string]bool{"ok": true})
+}

@@ -201,6 +201,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/apps/{id}/folders", s.needApp("app.settings", s.appFolder))
 	mux.HandleFunc("PUT /api/apps/{id}/gpu", s.needApp("app.settings", s.appGPU))
 	mux.HandleFunc("PUT /api/apps/{id}/share", s.needApp("app.share", s.appShare))
+	mux.HandleFunc("POST /api/apps/{id}/update", s.needApp("app.update", s.appUpdate))
+	mux.HandleFunc("POST /api/apps/{id}/undo", s.needApp("app.update", s.appUndo))
+	mux.HandleFunc("DELETE /api/apps/{id}/undo", s.needApp("app.update", s.appDropUndo))
 	mux.HandleFunc("GET /api/apps/{id}/access", s.needApp("app.access", s.appAccess))
 	mux.HandleFunc("PUT /api/apps/{id}/access", s.needApp("app.access", s.appSetAccess))
 	mux.HandleFunc("DELETE /api/apps/{id}", s.needApp("app.remove", s.appRemove))
@@ -311,6 +314,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 // background: NAS reconnects, keeping apps in step with the NAS, store sync, tunnel addresses.
 func (s *Server) background(ctx context.Context) {
+	s.Apps.Recover()
 	go s.Store.KeepConnected(ctx, s.Apps.Reconcile)
 	go func() {
 		s.Playit.EnsureAgent()
@@ -347,6 +351,9 @@ func (s *Server) background(ctx context.Context) {
 			if n%4 == 0 {
 				s.Playit.Refresh()
 				s.refreshTunnelAddresses()
+			}
+			if n%(4*60) == 0 {
+				s.Apps.ExpireUndo()
 			}
 			if n%(4*60*24) == 0 {
 				_ = s.Cat.Sync()

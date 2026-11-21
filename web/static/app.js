@@ -251,7 +251,7 @@ function newVersionCheck(v) {
 // Every window says what it shows (w.watch: addresses to ask, or functions), and is drawn
 // again when an answer changes. Never while you are busy in it: typing, a half-filled form,
 // or an open dialog or menu.
-const appsSig = () => JSON.stringify(S.apps.map((a) => [a.id, a.storeId, a.state, a.name, a.shared]));
+const appsSig = () => JSON.stringify(S.apps.map((a) => [a.id, a.storeId, a.state, a.name, a.shared, a.update]));
 function winBusy(w) {
   if ($('#layer').children.length) return true;
   const ae = document.activeElement;
@@ -309,7 +309,7 @@ function liveTick() {
 const BAD = ['waiting', 'crashed', 'failed'];
 function renderIcons() {
   const box = $('.icons'); if (!box) return;
-  const sig = JSON.stringify(S.apps.map((a) => [a.id, a.state, a.name]));
+  const sig = JSON.stringify(S.apps.map((a) => [a.id, a.state, a.name, a.update]));
   if (box.dataset.sig === sig) return; box.dataset.sig = sig;
   box.innerHTML = '';
   const add = (html, label, onOpen, onMenu, cls = '') => {
@@ -319,8 +319,8 @@ function renderIcons() {
     box.append(b);
   };
   for (const a of S.apps) {
-    const busyState = ['installing', 'starting', 'removing'].includes(a.state);
-    const extra = BAD.includes(a.state) ? '<span class="bang" aria-label="Needs attention">!</span>' : busyState ? '<span class="spin"><span class="spinner"></span></span>' : '';
+    const busyState = ['installing', 'starting', 'removing', 'updating'].includes(a.state);
+    const extra = BAD.includes(a.state) ? '<span class="bang" aria-label="Needs attention">!</span>' : busyState ? '<span class="spin"><span class="spinner"></span></span>' : a.update ? '<span class="bang upd" aria-label="Update available">↑</span>' : '';
     const ic = icon(a.storeId, a.name).replace('</span>', extra + '</span>');
     add(ic, a.name, () => openApp(a.id), (x, y) => appMenu(a.id, x, y), a.state === 'stopped' ? 'off' : '');
   }
@@ -371,6 +371,7 @@ function appMenu(id, x, y) {
     '-',
     has('app.share') && { label: 'Share online', right: a.shared ? 'On' : 'Off', run: () => openAppSettings(id, 'sharing') },
     { label: 'Settings', run: () => openAppSettings(id) },
+    a.update && has('app.update') && { label: 'Update to ' + a.update, run: () => updateApp(id) },
     has('app.power') && '-',
     has('app.power') && running && { label: 'Restart', run: () => appAction(id, 'restart', 'Restarting ' + a.name + '…') },
     has('app.power') && running && { label: 'Stop', run: () => appAction(id, 'stop', 'Stopping ' + a.name + '…') },
@@ -399,6 +400,7 @@ async function removeApp(id) {
 async function openApp(id, newTab) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
   if (a.state === 'installing') return toast(a.name + ' is still installing.');
+  if (a.state === 'updating') return toast(a.name + ' is being updated.');
   if (BAD.includes(a.state) || a.state === 'stopped' || a.noGui || !a.perms.includes('app.open')) return openAppSettings(id);
   if (WINS.has('app:' + id) && !newTab) return focusWin('app:' + id);
   let info; try { info = await GET(`/api/apps/${id}/open`); } catch (e) { return oops(e); }

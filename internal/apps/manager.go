@@ -44,7 +44,9 @@ type App struct {
 type AppSettings struct {
 	Env     map[string]string `json:"env"`
 	GPU     bool              `json:"gpu"`
-	Desired string            `json:"desired"` // running or stopped
+	Desired string            `json:"desired"`           // running or stopped
+	Version string            `json:"version,omitempty"` // the version it runs
+	Undo    *UndoPoint        `json:"undo,omitempty"`    // copy kept for undoing the last update
 }
 
 // Picked is a folder chosen in the folder picker.
@@ -302,6 +304,9 @@ func (m *Manager) runInstall(job *Job, id string) {
 		m.c.Log("system", "install failed", id, id, false, err.Error())
 	}
 	job.step("Preparing")
+	// a fresh install never inherits an older copy left in the app's folder
+	_ = os.RemoveAll(m.recipeDir(id))
+	_ = os.RemoveAll(m.undoDir(id))
 	if err := m.writeCompose(id, true); err != nil {
 		fail(err)
 		return
@@ -351,11 +356,12 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	if err != nil {
 		return err
 	}
-	sa, ok := m.cat.Get(a.StoreID)
-	if !ok {
-		return errors.New("This app is no longer in the store catalog.")
+	// The app runs from its own copy of the catalog entry, so it stays on its
+	// version until it is updated.
+	if err := m.ensureRecipe(a); err != nil {
+		return err
 	}
-	plan, err := loadCompose(sa.dir)
+	plan, err := loadCompose(m.recipeDir(id))
 	if err != nil {
 		return err
 	}
@@ -381,8 +387,10 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	}
 	// Starting files that come with the catalog app (Runtipi's "data" folder).
 	if firstTime {
-		if src := filepath.Join(sa.dir, "data"); dirExists(src) {
-			_ = copyTree(src, dataDir)
+		if sa, ok := m.cat.Get(a.StoreID); ok {
+			if src := filepath.Join(sa.dir, "data"); dirExists(src) {
+				_ = copyTree(src, dataDir)
+			}
 		}
 	}
 	for _, d := range plan.dirsToCreate(in) {
@@ -687,7 +695,7 @@ func (m *Manager) Status(list []*App) {
 	live := liveStates()
 	for _, a := range list {
 		switch a.State {
-		case "installing", "removing", "failed", "waiting":
+		case "installing", "removing", "failed", "waiting", "updating":
 			if a.State == "waiting" {
 				a.Problem = "Waiting for the NAS to come back. It starts by itself."
 			}
@@ -744,7 +752,7 @@ func (m *Manager) Reconcile() {
 	live := liveStates()
 	for _, a := range list {
 		roots := a.NASRoots()
-		if len(roots) == 0 || a.Settings.Desired != "running" || a.State == "installing" || a.State == "removing" {
+		if len(roots) == 0 || a.Settings.Desired != "running" || a.State == "installing" || a.State == "removing" || a.State == "updating" {
 			continue
 		}
 		ok := true

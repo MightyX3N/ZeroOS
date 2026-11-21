@@ -230,8 +230,21 @@ function showDesktop() {
 async function refresh() {
   if (!S.user || !$('.desk')) return;
   try { const d = await GET('/api/desktop'); S.apps = d.apps; S.attention = d.attention; S.system = d.system || null; S.sharedCount = d.sharedCount; } catch (e) { return; }
+  newVersionCheck(S.system && S.system.version);
   renderIcons(); renderWidgets(); renderDock(); liveTick();
   const n = $('.bar .dotn'); if (n) { n.textContent = S.attention.length; n.classList.toggle('hide', !S.attention.length); }
+}
+
+// After "zeroos update", a page that was already open still runs the old version.
+// With nothing open it reloads itself; otherwise it offers to, so nothing you have open is lost.
+function newVersionCheck(v) {
+  if (!v) return;
+  if (!S.version) { S.version = v; return; }
+  if (v === S.version || $('#newver')) return;
+  if (!WINS.size && !$('#layer').children.length) { location.reload(); return; }
+  const t = el(`<div class="toast" id="newver" role="status" style="pointer-events:auto">ZeroOS was updated to ${esc(v)}. <button class="link" style="color:#fff;text-decoration:underline">Reload to use it</button></div>`);
+  $('button', t).onclick = () => location.reload();
+  $('#toasts').append(t);
 }
 
 // --- keeping open windows current -------------------------------------------------------
@@ -263,13 +276,24 @@ async function liveCheck(w) {
     if (!WINS.has(w.key)) return;
     const now = parts.join('\n');
     if (w.liveKey !== key) { w.liveKey = key; w.liveSig = now; return; } // a new page: this is what it shows
-    if (now === w.liveSig || winBusy(w)) return;                          // busy: try again next time
-    w.liveSig = now;
-    const scroller = $('.pane', w.body), top = scroller ? scroller.scrollTop : 0, open = $$('details', w.body).map((d) => d.open);
-    await w.redrawQuiet();
-    const sc = $('.pane', w.body); if (sc) sc.scrollTop = top;
-    $$('details', w.body).forEach((d, i) => { if (open[i]) d.open = true; });
+    if (now === w.liveSig) return;
+    if (!winBusy(w)) return await liveApply(w, now);
+    // You are busy in it: draw it the moment you are done, not at the next round.
+    w.livePending = now;
+    if (!w.liveWait) w.liveWait = setInterval(() => {
+      if (!WINS.has(w.key)) { clearInterval(w.liveWait); w.liveWait = null; return; }
+      if (winBusy(w) || w.liveRun) return;
+      clearInterval(w.liveWait); w.liveWait = null;
+      if (w.livePending !== w.liveSig) liveApply(w, w.livePending);
+    }, 300);
   } catch (e) { /* next time */ } finally { w.liveRun = false; }
+}
+async function liveApply(w, now) {
+  w.liveSig = now;
+  const scroller = $('.pane', w.body), top = scroller ? scroller.scrollTop : 0, open = $$('details', w.body).map((d) => d.open);
+  try { await w.redrawQuiet(); } catch (e) { w.liveSig = null; return; } // didn't work: try again next round
+  const sc = $('.pane', w.body); if (sc) sc.scrollTop = top;
+  $$('details', w.body).forEach((d, i) => { if (open[i]) d.open = true; });
 }
 // liveKick: a window just drew a page; note what it shows right away.
 function liveKick(w) { w.liveKey = null; liveCheck(w); }

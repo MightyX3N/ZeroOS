@@ -220,7 +220,7 @@ function showDesktop() {
     { label: 'Sign out', run: async () => { await POST('/api/logout').catch(() => 0); S.user = null; boot(); } }]); };
   $('[data-bell]').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect();
     if (!S.attention.length) return menu(r.right - 240, r.bottom + 4, [{ label: 'Nothing needs your attention', run() {} }]);
-    menu(r.right - 340, r.bottom + 4, S.attention.map((a) => ({ label: a.text.length > 60 ? a.text.slice(0, 58) + '…' : a.text, run: () => a.appId ? openAppSettings(a.appId) : openSettings('space') }))); };
+    menu(r.right - 340, r.bottom + 4, S.attention.map((a) => ({ label: a.text.length > 60 ? a.text.slice(0, 58) + '…' : a.text, run: () => a.appId ? openAppSettings(a.appId) : openSettings(a.backups ? 'backups' : 'space') }))); };
   $('.desk').addEventListener('contextmenu', (e) => { if (e.target.closest('.dicon,.win,.widget')) return; e.preventDefault();
     menu(e.clientX, e.clientY, [{ label: 'Open the Store', run: openStore }, { label: 'Settings', run: () => openSettings() }, { label: 'Refresh', run: refresh }]); });
   refresh();
@@ -319,7 +319,7 @@ function renderIcons() {
     box.append(b);
   };
   for (const a of S.apps) {
-    const busyState = ['installing', 'starting', 'removing', 'updating'].includes(a.state);
+    const busyState = ['installing', 'starting', 'removing', 'updating', 'backup'].includes(a.state);
     const extra = BAD.includes(a.state) ? '<span class="bang" aria-label="Needs attention">!</span>' : busyState ? '<span class="spin"><span class="spinner"></span></span>' : a.update ? '<span class="bang upd" aria-label="Update available">↑</span>' : '';
     const ic = icon(a.storeId, a.name).replace('</span>', extra + '</span>');
     add(ic, a.name, () => openApp(a.id), (x, y) => appMenu(a.id, x, y), a.state === 'stopped' ? 'off' : '');
@@ -337,7 +337,7 @@ function renderWidgets() {
   const box = $('.widgets'); if (!box) return;
   let h = '';
   if (S.attention.length) {
-    h += `<section class="widget"><h3>Needs attention</h3>${S.attention.map((a, i) => `<div class="item">${a.appId ? icon(a.storeId, a.name, '1.9em') : sysIcon(SVG.folder, '#A16207', '1.9em')}<div class="col grow" style="gap:.35em"><span>${esc(a.text)}</span><button class="link" data-att="${i}" style="align-self:flex-start">${a.appId ? 'Look at it' : 'Check Space'}</button></div></div>`).join('')}</section>`;
+    h += `<section class="widget"><h3>Needs attention</h3>${S.attention.map((a, i) => `<div class="item">${a.appId ? icon(a.storeId, a.name, '1.9em') : sysIcon(SVG.folder, '#A16207', '1.9em')}<div class="col grow" style="gap:.35em"><span>${esc(a.text)}</span><button class="link" data-att="${i}" style="align-self:flex-start">${a.appId ? 'Look at it' : a.backups ? 'Check Backups' : 'Check Space'}</button></div></div>`).join('')}</section>`;
   }
   const shared = S.apps.filter((a) => a.shared);
   if (S.sharedCount) h += `<section class="widget shared"><div class="between"><h3>Shared online</h3><button class="link" data-sharing>Manage</button></div><div class="row" style="gap:.35em">${shared.map((a) => icon(a.storeId, a.name, '1.9em')).join('')}</div><span class="muted">${S.sharedCount} ${S.sharedCount === 1 ? 'thing is' : 'things are'} reachable from outside your home.</span></section>`;
@@ -346,7 +346,7 @@ function renderWidgets() {
     h += `<section class="widget sys"><h3>This mini PC</h3><div class="wstat"><span class="muted">CPU</span><div class="meter"><span style="width:${Math.round(s.cpu)}%"></span></div><span class="muted">Memory</span><div class="meter"><span style="width:${pct(s.memUsed, s.memTotal)}%"></span></div><span class="muted">SSD</span><div class="meter"><span style="width:${pct(s.ssd.used, s.ssd.total)}%"></span></div></div></section>`;
   }
   if (box.dataset.h === h) return; box.dataset.h = h; box.innerHTML = h;
-  $$('[data-att]', box).forEach((b) => b.onclick = () => { const a = S.attention[+b.dataset.att]; a.appId ? openAppSettings(a.appId) : openSettings('space'); });
+  $$('[data-att]', box).forEach((b) => b.onclick = () => { const a = S.attention[+b.dataset.att]; a.appId ? openAppSettings(a.appId) : openSettings(a.backups ? 'backups' : 'space'); });
   const sh = $('[data-sharing]', box); if (sh) sh.onclick = () => openSettings('sharing');
 }
 
@@ -401,6 +401,7 @@ async function openApp(id, newTab) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
   if (a.state === 'installing') return toast(a.name + ' is still installing.');
   if (a.state === 'updating') return toast(a.name + ' is being updated.');
+  if (a.state === 'backup') return toast(a.name + ' is busy with a backup. It is back in a moment.');
   if (BAD.includes(a.state) || a.state === 'stopped' || a.noGui || !a.perms.includes('app.open')) return openAppSettings(id);
   if (WINS.has('app:' + id) && !newTab) return focusWin('app:' + id);
   let info; try { info = await GET(`/api/apps/${id}/open`); } catch (e) { return oops(e); }

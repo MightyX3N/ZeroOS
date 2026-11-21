@@ -212,6 +212,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/apps/{id}/access", s.needApp("app.access", s.appAccess))
 	mux.HandleFunc("PUT /api/apps/{id}/access", s.needApp("app.access", s.appSetAccess))
 	mux.HandleFunc("DELETE /api/apps/{id}", s.needApp("app.remove", s.appRemove))
+	mux.HandleFunc("GET /api/apps/{id}/backups", s.needApp("app.backups", s.appBackups))
+	mux.HandleFunc("POST /api/apps/{id}/backups", s.needApp("app.backups", s.appBackupMake))
+	mux.HandleFunc("PUT /api/apps/{id}/backups/auto", s.needApp("app.backups", s.appBackupAuto))
+	mux.HandleFunc("POST /api/apps/{id}/backups/{file}/restore", s.needApp("app.backups", s.appBackupRestore))
+	mux.HandleFunc("DELETE /api/apps/{id}/backups/{file}", s.needApp("app.backups", s.appBackupDelete))
+
+	// backups
+	mux.HandleFunc("GET /api/backups", s.need("backups.manage", s.backupsInfo))
+	mux.HandleFunc("PUT /api/backups", s.need("backups.manage", s.backupsPlan))
+	mux.HandleFunc("POST /api/backups/run", s.need("backups.manage", s.backupsRun))
+	mux.HandleFunc("POST /api/backups/{app}/{file}/install", s.need("backups.manage", s.backupsPutBack))
+	mux.HandleFunc("DELETE /api/backups/{app}/{file}", s.need("backups.manage", s.backupsDelete))
 
 	// storage
 	mux.HandleFunc("GET /api/storage", s.signedIn(s.storageInfo))
@@ -354,6 +366,7 @@ func (s *Server) background(ctx context.Context) {
 			n++
 			s.Apps.Reconcile()
 			if n%4 == 0 {
+				s.Apps.BackupTick()
 				s.Playit.Refresh()
 				s.refreshTunnelAddresses()
 			}

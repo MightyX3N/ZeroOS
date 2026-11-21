@@ -38,6 +38,7 @@ type UndoPoint struct {
 	Size    int64  `json:"size"`    // bytes the copy takes
 	Build   bool   `json:"build"`   // the update was a newer build of the same version
 	Edit    bool   `json:"edit"`    // the change was an edited compose file
+	Restore bool   `json:"restore"` // the change was a backup that was put back
 }
 
 // appBefore is what an edit can change besides the recipe, kept for putting it back.
@@ -551,7 +552,7 @@ func (m *Manager) Undo(id string) (*Job, error) {
 	job := m.newJob(id)
 	go func() {
 		defer m.unlock(id)
-		was, from, to := a.State, a.Settings.Version, a.Settings.Undo.Version
+		was, from, to, restore := a.State, a.Settings.Version, a.Settings.Undo.Version, a.Settings.Undo.Restore
 		m.setState(id, "updating")
 		if err := m.putBack(id, job, a, was, false); err != nil {
 			m.setState(id, "failed")
@@ -562,7 +563,11 @@ func (m *Manager) Undo(id string) (*Job, error) {
 		m.mu.Lock()
 		m.newer[id] = false // asked again at the next check
 		m.mu.Unlock()
-		m.c.Log("system", "update undone", fmt.Sprintf("%s (%s back to %s)", a.Name, from, to), id, true, "")
+		if restore {
+			m.c.Log("system", "went back to before a backup was put back into", a.Name, id, true, "")
+		} else {
+			m.c.Log("system", "update undone", fmt.Sprintf("%s (%s back to %s)", a.Name, from, to), id, true, "")
+		}
 		job.step("Done")
 		job.finish(nil)
 	}()
@@ -606,7 +611,7 @@ func (m *Manager) ExpireUndo() {
 // recipe, so they too stay on their version from now on.
 func (m *Manager) Recover() {
 	_, _ = m.c.DB.Exec(`UPDATE apps SET state='failed' WHERE state='installing'`)
-	_, _ = m.c.DB.Exec(`UPDATE apps SET state='running' WHERE state IN ('updating','removing')`)
+	_, _ = m.c.DB.Exec(`UPDATE apps SET state='running' WHERE state IN ('updating','removing','backup')`)
 	list, _ := m.List()
 	for _, a := range list {
 		if a.State != "failed" {

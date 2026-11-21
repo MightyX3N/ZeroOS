@@ -337,22 +337,23 @@ function updateApp(id) {
 }
 async function undoUpdate(id, undo) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
-  const was = undo.edit ? 'its previous compose file' : undo.build ? 'the previous build' : undo.version;
-  if (!await confirmDlg(undo.edit ? `Go back to the previous compose file of ${a.name}?` : undo.build ? `Go back to the previous build of ${a.name}?` : `Go back to ${a.name} ${undo.version}?`, `${a.name} goes back to exactly how it was before the ${undo.edit ? 'change' : 'update'} on ${fmtTime(undo.at)}. Anything you did in ${a.name} since then is lost. Folders on your NAS are not changed.`, 'Go back', true)) return;
+  const was = undo.restore ? 'how it was before the backup was put back' : undo.edit ? 'its previous compose file' : undo.build ? 'the previous build' : undo.version;
+  const what = undo.restore ? 'backup was put back' : undo.edit ? 'change' : 'update';
+  if (!await confirmDlg(undo.restore ? `Go back to how ${a.name} was before?` : undo.edit ? `Go back to the previous compose file of ${a.name}?` : undo.build ? `Go back to the previous build of ${a.name}?` : `Go back to ${a.name} ${undo.version}?`, `${a.name} goes back to exactly how it was before the ${what} on ${fmtTime(undo.at)}. Anything you did in ${a.name} since then is lost. Folders on your NAS are not changed.`, 'Go back', true)) return;
   try { const r = await POST(`/api/apps/${id}/undo`); refresh();
-    jobProgress(a, r.job, id, { title: undo.edit ? 'Putting the previous compose file of ' + a.name + ' back' : undo.build ? 'Putting the previous build of ' + a.name + ' back' : 'Putting ' + a.name + ' ' + undo.version + ' back', doing: 'going back', okText: `${a.name} is back on ${was}, as it was.`, okToast: a.name + ' is back on ' + was + '.', failToast: a.name + " couldn't go back.", open: true });
+    jobProgress(a, r.job, id, { title: undo.restore ? 'Putting ' + a.name + ' back as it was' : undo.edit ? 'Putting the previous compose file of ' + a.name + ' back' : undo.build ? 'Putting the previous build of ' + a.name + ' back' : 'Putting ' + a.name + ' ' + undo.version + ' back', doing: 'going back', okText: undo.restore ? `${a.name} is back to ${was}.` : `${a.name} is back on ${was}, as it was.`, okToast: undo.restore ? a.name + ' is back as it was.' : a.name + ' is back on ' + was + '.', failToast: a.name + " couldn't go back.", open: true });
   } catch (e) { oops(e); }
 }
 
 // --- one app's settings window ---------------------------------------------------------------
-const STATE_TEXT = { running: 'Working normally', starting: 'Starting up…', stopped: 'Stopped', waiting: 'Waiting for your NAS', crashed: 'Stopped unexpectedly', failed: "Didn't install", installing: 'Installing…', removing: 'Removing…', updating: 'Updating…' };
+const STATE_TEXT = { running: 'Working normally', starting: 'Starting up…', stopped: 'Stopped', waiting: 'Waiting for your NAS', crashed: 'Stopped unexpectedly', failed: "Didn't install", installing: 'Installing…', removing: 'Removing…', updating: 'Updating…', backup: 'Busy with a backup…' };
 function openAppSettings(id, tab) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
   const win = openWin({ key: 'appset:' + id, title: a.name + ' settings', iconHTML: icon(a.storeId, a.name), w: 860, h: 620, render(body, w) {
     body.innerHTML = `<nav class="side" aria-label="${esc(a.name)} settings"></nav><div class="pane"></div>`;
     w.go = (t) => { w.tab = t; appSettingsDraw(w, id); liveKick(w); };
     w.tab = 'overview';
-    w.watch = () => ['/api/apps/' + id].concat(w.tab === 'access' ? [`/api/apps/${id}/access`] : w.tab === 'activity' ? ['/api/activity?app=' + encodeURIComponent(id)] : []);
+    w.watch = () => ['/api/apps/' + id].concat(w.tab === 'access' ? [`/api/apps/${id}/access`] : w.tab === 'backups' ? [`/api/apps/${id}/backups`] : w.tab === 'activity' ? ['/api/activity?app=' + encodeURIComponent(id)] : []);
     w.redrawQuiet = () => appSettingsDraw(w, id);
   } });
   win.go(tab || win.tab || 'overview');
@@ -362,20 +363,20 @@ async function appSettingsDraw(w, id) {
   w.tickFn = null;
   let d; try { d = await GET('/api/apps/' + id); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
   const a = d.app, has = (p) => d.perms.includes(p);
-  const tabs = [['overview', 'Overview', true], ['folders', 'Folders', has('app.settings')], ['sharing', 'Sharing', has('app.share')], ['access', 'Who can use it', has('app.access')], ['compose', 'Compose file', !!d.canCompose], ['activity', 'Activity', true], ['log', 'Log', has('app.settings')]].filter((t) => t[2]);
+  const tabs = [['overview', 'Overview', true], ['folders', 'Folders', has('app.settings')], ['sharing', 'Sharing', has('app.share')], ['access', 'Who can use it', has('app.access')], ['backups', 'Backups', has('app.backups')], ['compose', 'Compose file', !!d.canCompose], ['activity', 'Activity', true], ['log', 'Log', has('app.settings')]].filter((t) => t[2]);
   if (!tabs.some((t) => t[0] === w.tab)) w.tab = 'overview';
   side.innerHTML = tabs.map(([k, l]) => `<button data-t="${k}" class="${w.tab === k ? 'on' : ''}">${l}</button>`).join('');
   $$('[data-t]', side).forEach((b) => b.onclick = () => w.go(b.dataset.t));
   const redraw = () => { refresh(); appSettingsDraw(w, id); };
-  const running = !['stopped', 'failed', 'installing', 'updating'].includes(a.state);
+  const running = !['stopped', 'failed', 'installing', 'updating', 'backup'].includes(a.state), working = ['updating', 'backup'].includes(a.state);
   if (w.tab === 'overview') {
     const bad = ['waiting', 'crashed', 'failed'].includes(a.state);
     pane.innerHTML = `<div class="between"><div class="row" style="flex-wrap:nowrap">${icon(a.storeId, a.name, '3.8em')}<div class="col" style="gap:.25em"><h1>${esc(a.name)}</h1><span class="${bad ? '' : 'muted'}" ${bad ? 'style="color:var(--warn);font-weight:600"' : ''}>${esc(STATE_TEXT[a.state] || a.state)}</span></div></div>
         <div class="row">${has('app.open') && !a.noGui && running ? `<button class="btn" data-tab>Open in a new tab</button><button class="btn pri" data-open>Open</button>` : ''}</div></div>
       ${a.problem ? `<div class="note warn">${esc(a.problem)}</div>` : ''}
       ${a.noGui ? '<div class="note info">This app has no page of its own to open. It works in the background.</div>' : ''}
-      ${d.update && a.state !== 'updating' ? `<div class="box" style="border-color:var(--accent)"><div class="between"><div class="col" style="gap:.1em"><h3>Update available</h3><span>${d.update.build ? `A newer build of ${esc(a.name)} can be downloaded.` : `Version ${esc(d.update.to)} is in the Store. ${esc(a.name)} is on ${esc(d.update.from || 'an older version')}.`}</span></div>${has('app.update') ? '<button class="btn pri" data-update>Update</button>' : ''}</div><span class="muted">ZeroOS keeps a copy first, so an update can be undone for a week.</span></div>` : ''}
-      ${d.undo && a.state !== 'updating' ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>${d.undo.edit ? 'Changed' : 'Updated'} ${fmtTime(d.undo.at)}</h3><span>You can go back to ${d.undo.edit ? 'the compose file as it was' : d.undo.build ? 'the previous build' : 'version ' + esc(d.undo.version)}, with everything exactly as it was, until ${fmtTime(d.undo.at + d.undoDays * 86400)}.</span></div>${has('app.update') ? `<div class="row"><button class="btn sm" data-undo>${d.undo.edit ? 'Undo the change' : 'Undo the update'}</button><button class="btn sm" data-keepver>Keep this version</button></div>` : ''}</div><span class="muted">The copy takes ${fmtBytes(d.undo.size)}. "Keep this version" deletes it now.</span></div>` : ''}
+      ${d.update && !working ? `<div class="box" style="border-color:var(--accent)"><div class="between"><div class="col" style="gap:.1em"><h3>Update available</h3><span>${d.update.build ? `A newer build of ${esc(a.name)} can be downloaded.` : `Version ${esc(d.update.to)} is in the Store. ${esc(a.name)} is on ${esc(d.update.from || 'an older version')}.`}</span></div>${has('app.update') ? '<button class="btn pri" data-update>Update</button>' : ''}</div><span class="muted">ZeroOS keeps a copy first, so an update can be undone for a week.</span></div>` : ''}
+      ${d.undo && !working ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>${d.undo.restore ? 'Backup put back' : d.undo.edit ? 'Changed' : 'Updated'} ${fmtTime(d.undo.at)}</h3><span>You can go back to ${d.undo.restore ? 'how it was just before that' : d.undo.edit ? 'the compose file as it was' : d.undo.build ? 'the previous build' : 'version ' + esc(d.undo.version)}, with everything exactly as it was, until ${fmtTime(d.undo.at + d.undoDays * 86400)}.</span></div>${has('app.update') ? `<div class="row"><button class="btn sm" data-undo>${d.undo.restore ? 'Undo putting it back' : d.undo.edit ? 'Undo the change' : 'Undo the update'}</button><button class="btn sm" data-keepver>${d.undo.restore ? 'Keep it like this' : 'Keep this version'}</button></div>` : ''}</div><span class="muted">The copy takes ${fmtBytes(d.undo.size)}. "${d.undo.restore ? 'Keep it like this' : 'Keep this version'}" deletes it now.</span></div>` : ''}
       <div class="cards">
         ${d.folders.length ? `<div class="box"><div class="between"><h3>Folders</h3>${has('app.settings') ? '<button class="link" data-go="folders">Change</button>' : ''}</div>${d.folders.map((f) => `<span>${esc(f.label)}: <strong>${esc(f.rootLabel)}${f.path && f.path !== '/' ? esc(f.path.replace(/\//g, ' / ')) : ''}</strong>${f.connected ? '' : ' <span class="badge warn">Not connected</span>'}</span>`).join('')}<span class="muted">Its own data stays on this mini PC's SSD.</span></div>` : ''}
         ${has('app.share') && !a.noGui ? `<div class="box"><div class="between"><h3>Share online</h3><button class="link" data-go="sharing">${d.tunnel || d.secure ? 'Manage' : 'Set up'}</button></div>${d.secure ? `<code class="addr">${esc(d.secure.address)}</code>` : ''}${d.tunnel ? (d.tunnel.address ? `<code class="addr">${esc(d.tunnel.address)}</code>` : '<span class="muted">Getting its address…</span>') : (d.secure ? '' : '<span class="muted">Only reachable at home.</span>')}</div>` : ''}
@@ -383,7 +384,7 @@ async function appSettingsDraw(w, id) {
         ${d.gpuAvailable && has('app.settings') ? `<div class="box"><div class="between"><h3>Graphics chip</h3><input type="checkbox" class="switch" data-gpu ${a.settings.gpu ? 'checked' : ''} aria-label="Let this app use the graphics chip"></div><span class="muted">Lets the app use this mini PC's graphics chip, for faster video.</span></div>` : ''}
       </div>
       <div class="row">${has('app.power') ? (running ? `<button class="btn" data-act="restart">Restart</button><button class="btn" data-act="stop">Stop</button>` : a.state !== 'installing' ? `<button class="btn pri" data-act="start">Start</button>` : '') : ''}${has('app.remove') ? `<button class="btn danger" data-rm>Remove</button>` : ''}</div>
-      ${has('app.update') && !d.update && a.state !== 'updating' && a.state !== 'installing' ? `<p class="muted"><button class="link" data-check>Check for a newer build</button></p>` : ''}
+      ${has('app.update') && !d.update && !working && a.state !== 'installing' ? `<p class="muted"><button class="link" data-check>Check for a newer build</button></p>` : ''}
       ${d.custom ? '<p class="muted">Your own app, from a compose file</p>' : ''}
       ${d.store ? `<p class="muted">${d.version ? 'Version ' + esc(d.version) + ' · ' : ''}From the Store${d.store.verified ? ' · Verified' : ' · Community'}${d.store.website ? ` · <a href="${esc(d.store.website)}" target="_blank" rel="noopener noreferrer">Website</a>` : ''}</p>` : ''}`;
     const o = $('[data-open]', pane); if (o) { o.onclick = () => openApp(id); $('[data-tab]', pane).onclick = () => openApp(id, true); }
@@ -393,7 +394,7 @@ async function appSettingsDraw(w, id) {
     const ub = $('[data-update]', pane); if (ub) ub.onclick = () => updateApp(id);
     const ck = $('[data-check]', pane); if (ck) ck.onclick = () => busy(ck, async () => { const r = await POST(`/api/apps/${id}/check`); if (r.update) redraw(); else toast(a.name + ' is up to date.'); });
     const un = $('[data-undo]', pane); if (un) un.onclick = () => undoUpdate(id, d.undo);
-    const kv = $('[data-keepver]', pane); if (kv) kv.onclick = async () => { if (await confirmDlg('Keep this version?', `The copy for going back to ${d.undo.build ? 'the previous build' : d.undo.version} is deleted now, which frees ${fmtBytes(d.undo.size)}. The update can't be undone after that.`, 'Delete the copy', true)) busy(kv, async () => { await DEL(`/api/apps/${id}/undo`); redraw(); }); };
+    const kv = $('[data-keepver]', pane); if (kv) kv.onclick = async () => { if (await confirmDlg(d.undo.restore ? 'Keep it like this?' : 'Keep this version?', `The copy for going back to ${d.undo.restore ? 'how it was before the backup was put back' : d.undo.build ? 'the previous build' : d.undo.version} is deleted now, which frees ${fmtBytes(d.undo.size)}. ${d.undo.restore ? 'Putting the backup back' : 'The update'} can't be undone after that.`, 'Delete the copy', true)) busy(kv, async () => { await DEL(`/api/apps/${id}/undo`); redraw(); }); };
     const g = $('[data-gpu]', pane); if (g) g.onchange = async () => { try { await PUT(`/api/apps/${id}/gpu`, { on: g.checked }); toast('Saved. The app restarts to use it.'); } catch (e) { g.checked = !g.checked; oops(e); } };
   } else if (w.tab === 'folders') {
     pane.innerHTML = `<h1>Folders</h1><p class="muted">Big files live in the folders below. ${esc(a.name)}'s own data always stays on this mini PC's SSD.</p>${d.folders.length ? '' : `<p>${esc(a.name)} doesn't use any big-file folders.</p>`}
@@ -421,6 +422,25 @@ async function appSettingsDraw(w, id) {
       </tbody></table></div><p class="muted">Owners and admins can always do everything.</p>`;
     $$('input[data-u]', pane).forEach((c) => c.onchange = async () => { const uid = +c.dataset.u; const perms = $$(`input[data-u="${uid}"]:checked`, pane).map((x) => x.dataset.p);
       try { await PUT(`/api/apps/${id}/access`, { userId: uid, perms }); c.defaultChecked = c.checked; } catch (e) { c.checked = !c.checked; oops(e); } });
+  } else if (w.tab === 'backups') {
+    let b; try { b = await GET(`/api/apps/${id}/backups`); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+    const p = b.plan, ready = p.set && p.connected, idle = !working && a.state !== 'installing' && a.state !== 'failed';
+    pane.innerHTML = `<div class="between"><div class="col" style="gap:.2em"><h1>Backups</h1><span class="muted">${p.set ? 'Kept in ' + esc(p.label) + '.' : 'A backup is a copy of the app that you can put back later.'}</span></div>${ready ? `<button class="btn pri" data-mk ${idle ? '' : 'disabled'}>Back up now</button>` : ''}</div>
+      ${!p.set ? `<div class="note info">No place for backups has been chosen yet.${b.canManage ? '' : ' Ask someone who manages this server to choose one.'}</div>${b.canManage ? '<div><button class="btn pri" data-setb>Choose where backups go</button></div>' : ''}` : ''}
+      ${p.set && !p.connected ? '<div class="note warn">The place for backups isn\'t connected right now, so backups can\'t be made or put back. ZeroOS keeps trying to reach it.</div>' : ''}
+      ${p.set ? `<div class="box"><div class="between"><strong>Back up ${esc(a.name)} automatically</strong><input type="checkbox" class="switch" data-keep data-auto ${b.auto ? 'checked' : ''} aria-label="Back up ${esc(a.name)} automatically"></div><span class="muted">${p.when === 'off' ? 'Automatic backups are switched off for the whole server.' : `${p.when === 'weekly' ? 'Every Sunday' : 'Every night'} around ${String(p.hour).padStart(2, '0')}:00. The newest ${p.keep} automatic backups are kept; the ones you make yourself stay until you delete them.`}</span></div>` : ''}
+      ${ready ? (b.list.length ? `<div class="list">${b.list.map((x, i) => `<div class="lrow"><span class="grow"><strong>${fmtTime(x.at)}</strong> <span class="badge">${x.auto ? 'Automatic' : 'Made by hand'}</span><br><span class="muted">${fmtBytes(x.size)}${x.version && x.catalog !== 'custom' ? ' · version ' + esc(x.version) : ''}</span></span><button class="btn sm" data-rs="${i}" ${idle ? '' : 'disabled'}>Put back</button><button class="btn sm danger" data-del="${i}">Delete</button></div>`).join('')}</div>` : '<p class="muted">No backups of this app yet.</p>') : ''}
+      <p class="muted">A backup holds ${esc(a.name)}'s own data from this mini PC's SSD and its settings. Folders on your NAS aren't part of it. ${esc(a.name)} stops for a moment while a backup is made.</p>`;
+    const sb = $('[data-setb]', pane); if (sb) sb.onclick = () => openSettings('backups');
+    const au = $('[data-auto]', pane); if (au) au.onchange = async () => { try { await PUT(`/api/apps/${id}/backups/auto`, { on: au.checked }); } catch (e) { au.checked = !au.checked; oops(e); } };
+    const mk = $('[data-mk]', pane); if (mk) mk.onclick = () => busy(mk, async () => { const r = await POST(`/api/apps/${id}/backups`); refresh();
+      jobProgress(a, r.job, id, { title: 'Backing up ' + a.name, doing: 'backing up', okText: `The backup of ${a.name} is in ${p.label}.`, okToast: a.name + ' was backed up.', failToast: a.name + " wasn't backed up." }); });
+    $$('[data-rs]', pane).forEach((bt) => bt.onclick = async () => { const x = b.list[+bt.dataset.rs];
+      if (!await confirmDlg(`Put the backup from ${fmtTime(x.at)} back?`, `${a.name} goes back to how it was then. What you did in ${a.name} after that is replaced, but ZeroOS keeps how it is now for a week, so you can undo this. Folders on your NAS are not changed.`, 'Put it back', true)) return;
+      busy(bt, async () => { const r = await POST(`/api/apps/${id}/backups/${x.file}/restore`); refresh();
+        jobProgress(a, r.job, id, { title: 'Putting a backup of ' + a.name + ' back', doing: 'putting it back', okText: `${a.name} is back to how it was on ${fmtTime(x.at)}. You can undo this for a week in its settings.`, okToast: 'The backup of ' + a.name + ' was put back.', failToast: 'The backup of ' + a.name + " wasn't put back.", open: true }); }); });
+    $$('[data-del]', pane).forEach((bt) => bt.onclick = async () => { const x = b.list[+bt.dataset.del];
+      if (await confirmDlg('Delete this backup?', `The backup of ${a.name} from ${fmtTime(x.at)} is deleted from ${p.label}. This frees ${fmtBytes(x.size)}.`, 'Delete', true)) busy(bt, async () => { await DEL(`/api/apps/${id}/backups/${x.file}`); appSettingsDraw(w, id); }); });
   } else if (w.tab === 'compose') {
     let src; try { src = await GET(`/api/apps/${id}/compose`); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
     pane.innerHTML = `<div class="between"><div class="col" style="gap:.2em"><h1>Compose file</h1><span class="muted">${esc(a.name)} is your own app. This is the file it was made from.</span></div><button class="btn pri" data-editc ${a.state === 'updating' ? 'disabled' : ''}>Change</button></div>
@@ -445,14 +465,14 @@ async function activityHTML(query) {
 }
 
 // --- Settings window -----------------------------------------------------------------------------
-const settingsSections = () => [['users', 'Users and roles', can('users.manage')], ['space', 'Space', true], ['sharing', 'Sharing online', true], ['system', 'System', can('system.view')], ['activity', 'Activity', true], ['profile', 'Profile', true]];
+const settingsSections = () => [['users', 'Users and roles', can('users.manage')], ['space', 'Space', true], ['backups', 'Backups', can('backups.manage')], ['sharing', 'Sharing online', true], ['system', 'System', can('system.view')], ['activity', 'Activity', true], ['profile', 'Profile', true]];
 function openSettings(section) {
   const win = openWin({ key: 'settings', title: 'Settings', iconHTML: sysIcon(SVG.gear, '#475569'), w: 980, h: 680, render(body, w) {
     body.innerHTML = `<nav class="side" aria-label="Settings sections"></nav><div class="pane"></div>`;
     w.go = (s) => { w.sec = s; settingsDraw(w); liveKick(w); };
     w.watch = () => ({
       users: ['/api/users', '/api/roles'].concat(w.uid && w.view !== 'roles' ? [`/api/users/${w.uid}/apps`] : []),
-      space: ['/api/storage'], sharing: ['/api/sharing'], system: ['/api/system'], activity: ['/api/activity'],
+      space: ['/api/storage'], backups: ['/api/backups'], sharing: ['/api/sharing'], system: ['/api/system'], activity: ['/api/activity'],
       profile: [{ url: '/api/me/sessions', pick: (l) => l.map((x) => [x.id, x.current]) }, { url: '/api/me', pick: (u) => [u.username, u.role, u.totp] }],
     })[w.sec];
     w.redrawQuiet = () => settingsDraw(w, true);
@@ -466,7 +486,7 @@ function settingsDraw(w, quiet) { // quiet: keep showing the old page until the 
   side.innerHTML = secs.map(([k, l]) => `<button data-s="${k}" class="${w.sec === k ? 'on' : ''}">${l}</button>`).join('');
   $$('[data-s]', side).forEach((b) => b.onclick = () => w.go(b.dataset.s));
   if (!quiet) pane.innerHTML = '<div class="row"><span class="spinner dark"></span></div>';
-  return ({ users: setUsers, space: setSpace, sharing: setSharing, system: setSystem, activity: setActivity, profile: setProfile })[w.sec](w, pane).catch((e) => { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; });
+  return ({ users: setUsers, space: setSpace, backups: setBackups, sharing: setSharing, system: setSystem, activity: setActivity, profile: setProfile })[w.sec](w, pane).catch((e) => { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; });
 }
 
 async function setSpace(w, pane) {
@@ -519,6 +539,40 @@ function tunnelList(list, emptyText) {
   return `<div class="list">${list.map((t) => `<div class="lrow">${t.kind === 'app' ? icon(t.storeId, t.name) : ''}<strong style="flex:1 1 9em">${esc(t.name)}</strong>${t.kind === 'port' ? `<span class="muted">Port ${t.localPort} · ${esc(t.proto === 'both' ? 'TCP + UDP' : t.proto.toUpperCase())}</span>` : ''}
     ${t.secure ? `<code class="addr" style="flex:1 1 22em">${esc(t.secure)}</code><button class="btn sm" data-copy="${esc(t.secure)}">Copy</button>` : ''}
     ${t.id ? (t.address ? `<code class="addr" style="flex:1 1 22em">${esc(t.address)}</code><button class="btn sm" data-copy="${esc(t.address)}">Copy</button>` : '<span class="muted" style="flex:1 1 12em">Getting its address…</span>') : ''}${t.canRemove ? `<button class="btn sm" data-stop="${t.id}">Stop sharing</button>` : ''}</div>`).join('')}</div>`;
+}
+
+async function setBackups(w, pane) {
+  const d = await GET('/api/backups'), p = d.plan, ready = p.set && p.connected;
+  const again = () => settingsDraw(w, true);
+  const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === p.hour ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('');
+  const keeps = [3, 7, 14, 30].map((k) => `<option value="${k}" ${k === p.keep ? 'selected' : ''}>The newest ${k}</option>`).join('') + ([3, 7, 14, 30].includes(p.keep) ? '' : `<option value="${p.keep}" selected>The newest ${p.keep}</option>`);
+  pane.innerHTML = `<div class="between"><div class="col" style="gap:.2em"><h1>Backups</h1><span class="muted">Copies of your apps, so a broken app or a broken SSD doesn't cost you anything.</span></div>${ready && d.apps.length ? `<button class="btn pri" data-all ${p.running ? 'disabled' : ''}>${p.running ? 'Backing up…' : 'Back up everything now'}</button>` : ''}</div>
+    ${p.problem ? `<div class="note warn">${esc(p.problem)}</div>` : ''}
+    ${p.running ? '<div class="note info"><span class="spinner dark"></span> Backups are being made. Each app stops for a moment while it is copied.</div>' : ''}
+    <div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>Where backups go</h3>${p.set ? `<code class="addr">${esc(p.label)}</code>` : '<span class="muted">Not chosen yet. A folder on your NAS is the best place.</span>'}</div><div class="row">${p.set ? `<span class="badge ${p.connected ? 'ok' : 'warn'}">${p.connected ? 'Connected' : 'Not connected'}</span>` : ''}<button class="btn ${p.set ? 'sm' : 'pri'}" data-place>${p.set ? 'Change' : 'Choose folder'}</button></div></div>
+      ${p.set && p.onSsd ? '<span class="muted" style="color:var(--warn)">This folder is on the mini PC\'s own SSD. If the SSD breaks, these backups are lost with it. A NAS share is safer.</span>' : ''}
+      ${p.set && !p.connected ? '<span>ZeroOS can\'t reach this place right now, so no backups are made. It keeps trying.</span>' : ''}</div>
+    ${p.set ? `<div class="box"><h3>Automatic backups</h3><div class="row"><label class="f" style="min-width:11em">How often<select data-keep name="when"><option value="daily" ${p.when === 'daily' ? 'selected' : ''}>Every night</option><option value="weekly" ${p.when === 'weekly' ? 'selected' : ''}>Every Sunday</option><option value="off" ${p.when === 'off' ? 'selected' : ''}>Never</option></select></label>
+      <label class="f" style="min-width:8em">At<select data-keep name="hour">${hours}</select></label><label class="f" style="min-width:11em">Keep<select data-keep name="keep">${keeps}</select></label></div>
+      <span class="muted">Each app stops for a moment while it is copied, so pick a time when nobody uses them. Older automatic backups are deleted by themselves; backups made by hand stay.${p.last ? ' Last run: ' + fmtTime(p.last) + '.' : ''}</span></div>
+    <h2>Your apps</h2>${d.apps.length ? `<div class="list">${d.apps.map((x) => `<div class="lrow">${icon(x.storeId, x.name)}<span class="grow"><strong>${esc(x.name)}</strong><br><span class="muted">${x.count ? `${x.count} ${x.count === 1 ? 'backup' : 'backups'} · ${fmtBytes(x.size)} · newest ${fmtTime(x.last)}` : 'No backup yet'}${x.auto ? '' : ' · left out of automatic backups'}</span></span><button class="btn sm" data-app="${esc(x.id)}">Open</button></div>`).join('')}</div>` : '<p class="muted">No apps installed yet.</p>'}
+    ${d.gone.length ? `<h2>Apps that aren't installed</h2><p class="muted">Backups of apps that were removed, or that were on this mini PC before it was set up again. Bringing one back installs the app with everything in the backup.</p>
+      ${d.gone.map((g, gi) => `<div class="box"><div class="row" style="flex-wrap:nowrap">${icon(g.storeId, g.name)}<strong>${esc(g.name)}</strong></div><div class="list">${g.backups.map((x, i) => `<div class="lrow"><span class="grow"><strong>${fmtTime(x.at)}</strong><br><span class="muted">${fmtBytes(x.size)}${x.version && x.catalog !== 'custom' ? ' · version ' + esc(x.version) : ''}</span></span>${d.canInstall && ready ? `<button class="btn sm" data-back="${gi}:${i}">Bring back</button>` : ''}<button class="btn sm danger" data-gdel="${gi}:${i}">Delete</button></div>`).join('')}</div></div>`).join('')}` : ''}` : ''}
+    <p class="muted">A backup holds an app's own data from the SSD and its settings. Films, photos and other folders on your NAS aren't copied; they are on the NAS already. Users and ZeroOS's own settings aren't part of backups yet.</p>`;
+  const save = (over) => PUT('/api/backups', Object.assign({ root: p.root, path: p.path, when: p.when, hour: p.hour, keep: p.keep }, over));
+  $('[data-place]', pane).onclick = async () => { const f = await pickFolder('Where should backups go?', 'Choose a folder on your NAS. ZeroOS makes one folder per app inside it.'); if (!f) return;
+    try { await save({ root: f.root, path: f.path === '/' ? '/ZeroOS backups' : f.path }); toast('Backups go to ' + f.label + (f.path === '/' ? ' / ZeroOS backups' : '') + '.'); } catch (e) { oops(e); } again(); };
+  $$('select[name]', pane).forEach((sl) => sl.onchange = async () => { try { await save({ [sl.name]: sl.name === 'when' ? sl.value : +sl.value }); toast('Saved.'); } catch (e) { oops(e); } again(); });
+  const all = $('[data-all]', pane); if (all) all.onclick = async () => { if (!await confirmDlg('Back up everything now?', 'Every app stops for a moment, one after the other, while it is copied. With big apps this can take a while.', 'Back up now')) return; busy(all, async () => { await POST('/api/backups/run'); toast('Backups are being made.'); again(); }); };
+  $$('[data-app]', pane).forEach((b) => b.onclick = () => openAppSettings(b.dataset.app, 'backups'));
+  const pick = (v) => { const [gi, i] = v.split(':').map(Number); return [d.gone[gi], d.gone[gi].backups[i]]; };
+  $$('[data-back]', pane).forEach((b) => b.onclick = async () => { const [g, x] = pick(b.dataset.back);
+    if (!await confirmDlg(`Bring ${g.name} back?`, `${g.name} is installed again, with its data and settings from the backup of ${fmtTime(x.at)}.`, 'Bring it back')) return;
+    busy(b, async () => { const r = await POST(`/api/backups/${g.id}/${x.file}/install`); await refresh(); again();
+      jobProgress({ id: g.id, storeId: g.storeId, name: g.name }, r.job, r.appId, { title: 'Bringing ' + g.name + ' back', doing: 'working', okText: g.name + ' is back. It is on your desktop.', okToast: g.name + ' is back.', failToast: g.name + " couldn't be brought back.", open: true,
+        onFail: (dl, foot) => { foot.insertAdjacentHTML('beforeend', '<button class="btn danger" data-rm>Remove it</button>'); $('[data-rm]', dl.el).onclick = async () => { await DEL(`/api/apps/${r.appId}?data=1`).catch(oops); dl.close(); refresh(); again(); }; } }); }); });
+  $$('[data-gdel]', pane).forEach((b) => b.onclick = async () => { const [g, x] = pick(b.dataset.gdel);
+    if (await confirmDlg('Delete this backup?', `The backup of ${g.name} from ${fmtTime(x.at)} is deleted. This frees ${fmtBytes(x.size)}. ${g.name} isn't installed, so this copy may be the only one.`, 'Delete', true)) busy(b, async () => { await DEL(`/api/backups/${g.id}/${x.file}`); again(); }); });
 }
 
 async function setSystem(w, pane) {

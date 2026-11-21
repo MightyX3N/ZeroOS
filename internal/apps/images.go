@@ -197,7 +197,7 @@ func (m *Manager) CheckBuilds() {
 		return
 	}
 	for _, a := range list {
-		if a.State == "installing" || a.State == "updating" || a.State == "removing" || a.State == "failed" {
+		if a.State == "installing" || a.State == "updating" || a.State == backupState || a.State == "removing" || a.State == "failed" {
 			continue
 		}
 		m.CheckBuild(a.ID)

@@ -96,6 +96,11 @@ func (s *Server) desktop(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if u.Can("backups.manage") {
+		if p := s.Apps.Plan(); p.Problem != "" {
+			attention = append(attention, map[string]string{"backups": "1", "text": p.Problem})
+		}
+	}
 	out := map[string]any{"apps": list, "attention": attention, "sharedCount": len(shared)}
 	if u.Can("system.view") {
 		out["system"] = s.sys.snapshot(s.C.Cfg.DataDir)

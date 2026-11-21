@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MightyX3N/zeroos/internal/core"
@@ -30,7 +31,7 @@ type App struct {
 	Catalog     string            `json:"catalog"`
 	Name        string            `json:"name"`
 	Port        int               `json:"-"`
-	State       string            `json:"state"` // installing, running, starting, stopped, waiting, failed, crashed, removing
+	State       string            `json:"state"` // installing, running, starting, stopped, waiting, failed, crashed, removing, updating, backup
 	Problem     string            `json:"problem,omitempty"`
 	Settings    AppSettings       `json:"settings"`
 	Folders     map[string]Picked `json:"folders"`
@@ -58,6 +59,8 @@ type AppSettings struct {
 	Desired string            `json:"desired"`           // running or stopped
 	Version string            `json:"version,omitempty"` // the version it runs
 	Undo    *UndoPoint        `json:"undo,omitempty"`    // copy kept for undoing the last update
+	// NoBackup leaves the app out of the automatic backups.
+	NoBackup bool `json:"noBackup,omitempty"`
 }
 
 // Picked is a folder chosen in the folder picker.
@@ -76,6 +79,8 @@ type Manager struct {
 	frame map[string]bool
 	busy  map[string]bool
 	newer map[string]bool // apps whose images have a newer build to download
+
+	backupsRunning atomic.Bool // the backups of all apps are being made
 }
 
 func NewManager(c *core.Core, cat *Catalog, st *storage.Storage) *Manager {
@@ -750,7 +755,7 @@ func (m *Manager) Status(list []*App) {
 	live := liveStates()
 	for _, a := range list {
 		switch a.State {
-		case "installing", "removing", "failed", "waiting", "updating":
+		case "installing", "removing", "failed", "waiting", "updating", backupState:
 			if a.State == "waiting" {
 				a.Problem = "Waiting for the NAS to come back. It starts by itself."
 			}
@@ -807,7 +812,7 @@ func (m *Manager) Reconcile() {
 	live := liveStates()
 	for _, a := range list {
 		roots := a.NASRoots()
-		if len(roots) == 0 || a.Settings.Desired != "running" || a.State == "installing" || a.State == "removing" || a.State == "updating" {
+		if len(roots) == 0 || a.Settings.Desired != "running" || a.State == "installing" || a.State == "removing" || a.State == "updating" || a.State == backupState {
 			continue
 		}
 		ok := true

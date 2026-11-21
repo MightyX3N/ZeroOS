@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +44,59 @@ type Playit struct {
 	c      *core.Core
 	client *http.Client
 	claim  sync.Mutex // one claim check at a time
+
+	mu      sync.Mutex
+	asked   time.Time // when playit last answered
+	premium bool      // as of that answer
+	secure  []Secure  // HTTPS tunnels made on playit.gg for this computer
+}
+
+// Secure is an HTTPS tunnel that was made on playit.gg and ends at this
+// computer's agent. playit only lets a person make these, so ZeroOS finds
+// them and matches them to an app by the local port they point at.
+type Secure struct {
+	TunnelID string `json:"-"`
+	Name     string `json:"name"`
+	Host     string `json:"host"`    // e.g. films.playit.plus
+	Port     int    `json:"-"`       // local port requests are sent to
+	Cert     bool   `json:"cert"`    // playit serves the certificate (TLS Termination = letsencrypt)
+	Problem  string `json:"problem"` // why playit has it switched off, if it does
+}
+
+// URL is the address people type.
+func (x Secure) URL() string { return "https://" + x.Host }
+
+// SecureFor returns the HTTPS tunnel that points at a local port, if one was found.
+func (p *Playit) SecureFor(port int) *Secure {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.secure {
+		if p.secure[i].Port == port && port > 0 {
+			x := p.secure[i]
+			return &x
+		}
+	}
+	return nil
+}
+
+// Premium tells whether the linked account had Premium the last time playit answered.
+func (p *Playit) Premium() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.premium
+}
+
+// Refresh asks playit again which tunnels this computer has.
+func (p *Playit) Refresh() { _ = p.Info() }
+
+// RefreshIfStale does the same unless playit answered within the last 20 seconds.
+func (p *Playit) RefreshIfStale() {
+	p.mu.Lock()
+	fresh := time.Since(p.asked) < 20*time.Second
+	p.mu.Unlock()
+	if !fresh {
+		p.Refresh()
+	}
 }
 
 func New(c *core.Core) *Playit {
@@ -197,11 +252,18 @@ func (p *Playit) SetSecret(secret string) error {
 func (p *Playit) Unlink() error {
 	_ = exec.Command("docker", "rm", "-f", containerName).Run()
 	_ = p.c.SetSetting("playit_secret", "")
+	p.mu.Lock()
+	p.premium, p.secure = false, nil
+	p.mu.Unlock()
 	_, err := p.c.DB.Exec(`UPDATE tunnels SET playit_id='', address=''`)
 	return err
 }
 
 // --- the agent container -----------------------------------------------------
+
+// certDir is where the agent keeps the certificates of HTTPS tunnels, so they
+// survive restarts and updates (Let's Encrypt only hands out a few per week).
+func (p *Playit) certDir() string { return filepath.Join(p.c.Cfg.DataDir, "playit") }
 
 // StartAgent (re)creates the official agent container with host networking.
 func (p *Playit) StartAgent() error {
@@ -209,15 +271,36 @@ func (p *Playit) StartAgent() error {
 	if s == "" {
 		return nil
 	}
+	if err := os.MkdirAll(p.certDir(), 0o700); err != nil {
+		return err
+	}
 	_ = exec.Command("docker", "rm", "-f", containerName).Run()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "docker", "run", "-d", "--name", containerName, "--restart", "unless-stopped",
-		"--net=host", "--label", "zeroos.system=playit", "-e", "SECRET_KEY="+s, AgentImage).CombinedOutput()
+		"--net=host", "--label", "zeroos.system=playit", "-v", p.certDir()+":/var/lib/playit",
+		"-e", "SECRET_KEY="+s, AgentImage).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("Couldn't start the playit agent: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// EnsureAgent starts the agent when it isn't running, and replaces one made
+// by an older ZeroOS that had nowhere to keep certificates.
+func (p *Playit) EnsureAgent() {
+	if !p.Linked() {
+		return
+	}
+	if AgentRunning() {
+		out, err := exec.Command("docker", "inspect", "-f", "{{range .Mounts}}{{.Source}}\n{{end}}", containerName).Output()
+		if err != nil || strings.Contains("\n"+string(out), "\n"+p.certDir()+"\n") {
+			return
+		}
+	}
+	if err := p.StartAgent(); err != nil {
+		log.Printf("playit: %v", err)
+	}
 }
 
 // AgentRunning tells whether the agent container runs.
@@ -237,24 +320,102 @@ type Info struct {
 }
 
 type runData struct {
-	AgentID     string `json:"agent_id"`
+	AgentID string `json:"agent_id"`
+	Tunnels []struct {
+		ID      string  `json:"id"`
+		Name    string  `json:"name"`
+		Address string  `json:"display_address"`
+		Type    *string `json:"tunnel_type"`
+		Config  struct {
+			Fields []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"fields"`
+		} `json:"agent_config"`
+		Disabled *string `json:"disabled_reason"`
+	} `json:"tunnels"`
 	Permissions struct {
 		HasPremium bool `json:"has_premium"`
 	} `json:"permissions"`
 }
 
+// hostOf takes the name out of an address like "https://films.playit.plus:443/".
+// It is the same name the playit agent asks a certificate for.
+func hostOf(addr string) string {
+	h := strings.TrimSpace(addr)
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+	}
+	if i := strings.IndexByte(h, '/'); i >= 0 {
+		h = h[:i]
+	}
+	if i := strings.LastIndexByte(h, ':'); i >= 0 && !strings.Contains(h, "]") {
+		if _, err := strconv.Atoi(h[i+1:]); err == nil {
+			h = h[:i]
+		}
+	}
+	h = strings.ToLower(strings.TrimSuffix(h, "."))
+	if h == "" || !strings.Contains(h, ".") || strings.ContainsAny(h, " []") {
+		return ""
+	}
+	return h
+}
+
+// secureTunnels picks the HTTPS tunnels out of what playit says this agent runs.
+func secureTunnels(rd runData) []Secure {
+	out := []Secure{}
+	for _, t := range rd.Tunnels {
+		if t.Type == nil || *t.Type != "https" {
+			continue
+		}
+		x := Secure{TunnelID: t.ID, Name: t.Name, Host: hostOf(t.Address)}
+		var httpPort, httpsPort int
+		for _, f := range t.Config.Fields {
+			switch f.Name {
+			case "http_port":
+				httpPort, _ = strconv.Atoi(f.Value)
+			case "https_port":
+				httpsPort, _ = strconv.Atoi(f.Value)
+			case "tls_termination":
+				x.Cert = f.Value == "letsencrypt"
+			}
+		}
+		// Like the agent: requests go to the HTTP port, or to the HTTPS port when that is 0.
+		x.Port = httpPort
+		if x.Port == 0 {
+			x.Port = httpsPort
+		}
+		if t.Disabled != nil {
+			x.Problem = *t.Disabled
+		}
+		if x.Host == "" {
+			log.Printf("playit: HTTPS tunnel %q has an address ZeroOS can't read: %q", t.Name, t.Address)
+			continue
+		}
+		out = append(out, x)
+	}
+	return out
+}
+
 func (p *Playit) Info() Info {
 	in := Info{Linked: p.Linked()}
 	if !in.Linked {
+		p.mu.Lock()
+		p.premium, p.secure = false, nil
+		p.mu.Unlock()
 		return in
 	}
 	in.AgentRunning = AgentRunning()
 	var rd runData
 	if err := p.call("/v1/agents/rundata", map[string]any{}, p.secret(), &rd); err != nil {
 		in.Problem = err.Error()
+		in.Premium = p.Premium()
 		return in
 	}
 	in.AgentID, in.Premium = rd.AgentID, rd.Permissions.HasPremium
+	p.mu.Lock()
+	p.premium, p.secure, p.asked = in.Premium, secureTunnels(rd), time.Now()
+	p.mu.Unlock()
 	return in
 }
 

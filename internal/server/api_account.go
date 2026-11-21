@@ -9,8 +9,9 @@ import (
 	"github.com/MightyX3N/zeroos/internal/core"
 )
 
-func (s *Server) setCookie(w http.ResponseWriter, tok string, remember bool) {
-	c := &http.Cookie{Name: cookieName, Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode}
+func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, tok string, remember bool) {
+	// Over an encrypted address the cookie is never sent unencrypted.
+	c := &http.Cookie{Name: cookieName, Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: r.TLS != nil || viaTunnel(r)}
 	if remember {
 		c.Expires = time.Now().Add(30 * 24 * time.Hour)
 	}
@@ -75,7 +76,7 @@ func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request) {
 		failErr(w, err)
 		return
 	}
-	s.setCookie(w, tok, false)
+	s.setCookie(w, r, tok, false)
 	s.C.Log(in.Username, "created the owner account", "", "", true, "")
 	u, _ := s.Auth.UserByID(id)
 	ok(w, map[string]any{"user": s.meData(u)})
@@ -106,7 +107,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		failErr(w, err)
 		return
 	}
-	s.setCookie(w, tok, in.Remember)
+	s.setCookie(w, r, tok, in.Remember)
 	ok(w, map[string]any{"user": s.meData(u)})
 }
 
@@ -146,7 +147,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, _ := s.Auth.NewSession(u.ID, r.UserAgent())
-	s.setCookie(w, tok, false)
+	s.setCookie(w, r, tok, false)
 	s.log(r, "changed their password", "", "", true, "")
 	ok(w, map[string]bool{"ok": true})
 }

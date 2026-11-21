@@ -37,6 +37,11 @@ func (s *Server) visibleApps(u *auth.User) []*apps.App {
 	return out
 }
 
+func (s *Server) appList() []*apps.App {
+	list, _ := s.Apps.List()
+	return list
+}
+
 func (s *Server) sharedApps() map[string]bool {
 	out := map[string]bool{}
 	rows, err := s.C.DB.Query(`SELECT app_id FROM tunnels WHERE kind='app'`)
@@ -48,6 +53,11 @@ func (s *Server) sharedApps() map[string]bool {
 		var id string
 		_ = rows.Scan(&id)
 		out[id] = true
+	}
+	for _, a := range s.appList() {
+		if s.Playit.SecureFor(a.Port) != nil {
+			out[a.ID] = true
+		}
 	}
 	return out
 }
@@ -231,9 +241,13 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 			people = append(people, x.Username)
 		}
 	}
+	if s.Playit.Linked() {
+		s.Playit.RefreshIfStale()
+	}
 	out := map[string]any{
 		"app": a, "folders": folders, "tunnel": tunnel, "people": people,
 		"perms": s.Auth.AppPermsFor(u, a.ID), "gpuAvailable": dirExists("/dev/dri"), "playitLinked": s.Playit.Linked(),
+		"playitPremium": s.Playit.Premium(), "secure": s.secureInfo(a.Port), "port": a.Port,
 	}
 	if inStore {
 		out["store"] = map[string]any{"shortDesc": sa.ShortDesc, "version": sa.Version, "website": sa.Website, "verified": sa.Verified}
@@ -245,6 +259,11 @@ func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 	a, _ := s.Apps.Get(r.PathValue("id"))
 	if !isHomeHost(r.Host) {
 		// Away from home the mini PC's own address doesn't work: use the app's shared address.
+		// A secure address made on playit.gg comes first.
+		if x := s.Playit.SecureFor(a.Port); x != nil && x.Problem == "" {
+			ok(w, map[string]any{"url": x.URL() + a.URLSuffix, "frameable": false, "remote": true, "noGui": a.NoGUI})
+			return
+		}
 		var addr string
 		_ = s.C.DB.QueryRow(`SELECT address FROM tunnels WHERE kind='app' AND app_id=?`, a.ID).Scan(&addr)
 		if addr == "" {

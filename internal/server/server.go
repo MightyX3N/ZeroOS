@@ -224,6 +224,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sharing/key", s.need("playit.account", s.claimKey))
 	mux.HandleFunc("DELETE /api/sharing", s.need("playit.account", s.unlink))
 	mux.HandleFunc("PUT /api/sharing/remote", s.need("system.manage", s.setRemote))
+	mux.HandleFunc("POST /api/sharing/refresh", s.signedIn(s.sharingRefresh))
 	mux.HandleFunc("POST /api/sharing/ports", s.signedIn(s.sharePort))
 	mux.HandleFunc("DELETE /api/sharing/tunnels/{tid}", s.signedIn(s.removeTunnel))
 
@@ -260,7 +261,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(b)
 	})
-	return securityHeaders(mux)
+	return securityHeaders(s.guardRemote(mux))
 }
 
 func securityHeaders(h http.Handler) http.Handler {
@@ -312,9 +313,8 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) background(ctx context.Context) {
 	go s.Store.KeepConnected(ctx, s.Apps.Reconcile)
 	go func() {
-		if s.Playit.Linked() && !playit.AgentRunning() {
-			_ = s.Playit.StartAgent()
-		}
+		s.Playit.EnsureAgent()
+		s.Playit.Refresh()
 	}()
 	go func() {
 		// Keep trying until the store has its catalog (the network may not be up yet at boot).
@@ -345,6 +345,7 @@ func (s *Server) background(ctx context.Context) {
 			n++
 			s.Apps.Reconcile()
 			if n%4 == 0 {
+				s.Playit.Refresh()
 				s.refreshTunnelAddresses()
 			}
 			if n%(4*60*24) == 0 {

@@ -71,6 +71,37 @@ function playitLinkBox(box, onLinked) {
   draw();
 }
 
+// --- secure (https) addresses -------------------------------------------------------------
+// playit only lets a person make these, on playit.gg. ZeroOS shows what to fill in there,
+// then finds the tunnel by itself.
+function secureBox(o) { // o: { secure, premium, port, what, canSetUp }
+  const x = o.secure;
+  if (x) return `<div class="box"><div class="between"><h3>Secure address</h3><span class="badge ${x.cert && !x.problem ? 'ok' : 'warn'}">${x.problem ? 'Switched off on playit.gg' : x.cert ? 'Encrypted' : 'Needs a change'}</span></div>
+    <div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(x.address)}</code><button class="btn sm" data-copy="${esc(x.address)}">Copy</button></div>
+    ${x.problem ? `<div class="note warn">playit.gg has this tunnel switched off: ${esc(x.problem)}</div>` : x.cert ? `<span class="muted">Browsers and phone and TV apps trust this address, with no warning. Right after it is made, playit needs about a minute to fetch its certificate.</span>`
+      : `<div class="note warn">This tunnel doesn't use playit's certificate yet, so the address won't open. On playit.gg, open the tunnel "${esc(x.name)}" and set <strong>TLS Termination</strong> to <strong>letsencrypt</strong>.</div>`}</div>`;
+  if (!o.canSetUp) return '';
+  if (!o.premium) return `<div class="box"><h3>Secure address</h3><span class="muted">An address that starts with https:// and opens without a warning needs playit Premium.</span></div>`;
+  return `<div class="box"><div class="between"><h3>Secure address</h3><span class="badge prem">Premium</span></div>
+    <span class="muted">An address that starts with https://, which browsers and phone and TV apps trust. playit only lets you make it on their website, once for ${esc(o.what)}. ZeroOS finds it by itself afterwards.</span>
+    <details><summary class="link" style="cursor:pointer">Show me how</summary>
+      <ol class="steps-list">
+        <li>Open playit.gg and start a new tunnel.<div><a class="btn sm" href="https://playit.gg/account/setup/new-tunnel" target="_blank" rel="noopener">Open playit.gg</a></div></li>
+        <li>As what to share, choose <strong>Website (HTTPS)</strong>.</li>
+        <li>As the computer, choose <strong>ZeroOS</strong>.</li>
+        <li>Fill in <strong>Http Port</strong> <code class="addr">${o.port}</code> <button class="btn sm" data-copy="${o.port}">Copy</button> and set <strong>TLS Termination</strong> to <strong>letsencrypt</strong>.</li>
+        <li>As the address, pick a name. Premium includes three names that end in .playit.plus.</li>
+      </ol>
+      <div class="row"><button class="btn sm" data-seccheck>I've made it, check now</button><span class="muted" data-secmsg></span></div>
+    </details></div>`;
+}
+function secureWire(root, redraw, found) { // found(): asks ZeroOS again and tells whether the tunnel is there now
+  $$('[data-copy]', root).forEach((b) => { if (!b.onclick) b.onclick = () => copyText(b.dataset.copy); });
+  const c = $('[data-seccheck]', root);
+  if (c) c.onclick = () => busy(c, async () => { await POST('/api/sharing/refresh');
+    if (await found()) { toast('Found it.'); redraw(); } else $('[data-secmsg]', root).textContent = 'Not found yet. Check the Http Port on playit.gg, then try again.'; });
+}
+
 // --- folder picker ---------------------------------------------------------------------
 function pickFolder(title, hint) {
   return new Promise((resolve) => {
@@ -230,7 +261,7 @@ async function appSettingsDraw(w, id) {
       ${a.noGui ? '<div class="note info">This app has no page of its own to open. It works in the background.</div>' : ''}
       <div class="cards">
         ${d.folders.length ? `<div class="box"><div class="between"><h3>Folders</h3>${has('app.settings') ? '<button class="link" data-go="folders">Change</button>' : ''}</div>${d.folders.map((f) => `<span>${esc(f.label)}: <strong>${esc(f.rootLabel)}${f.path && f.path !== '/' ? esc(f.path.replace(/\//g, ' / ')) : ''}</strong>${f.connected ? '' : ' <span class="badge warn">Not connected</span>'}</span>`).join('')}<span class="muted">Its own data stays on this mini PC's SSD.</span></div>` : ''}
-        ${has('app.share') && !a.noGui ? `<div class="box"><div class="between"><h3>Share online</h3><button class="link" data-go="sharing">${d.tunnel ? 'Manage' : 'Set up'}</button></div>${d.tunnel ? (d.tunnel.address ? `<code class="addr">${esc(d.tunnel.address)}</code>` : '<span class="muted">Getting its address…</span>') : '<span class="muted">Only reachable at home.</span>'}</div>` : ''}
+        ${has('app.share') && !a.noGui ? `<div class="box"><div class="between"><h3>Share online</h3><button class="link" data-go="sharing">${d.tunnel || d.secure ? 'Manage' : 'Set up'}</button></div>${d.secure ? `<code class="addr">${esc(d.secure.address)}</code>` : ''}${d.tunnel ? (d.tunnel.address ? `<code class="addr">${esc(d.tunnel.address)}</code>` : '<span class="muted">Getting its address…</span>') : (d.secure ? '' : '<span class="muted">Only reachable at home.</span>')}</div>` : ''}
         <div class="box"><div class="between"><h3>Who can use it</h3>${has('app.access') ? '<button class="link" data-go="access">Change</button>' : ''}</div><div class="row" style="gap:.3em">${d.people.map((p) => `<span class="av" style="background:${colorOf(p)};color:#fff" title="${esc(p)}">${esc(p[0].toUpperCase())}</span>`).join('')}</div><span class="muted">${esc(d.people.join(', '))}</span></div>
         ${d.gpuAvailable && has('app.settings') ? `<div class="box"><div class="between"><h3>Graphics chip</h3><input type="checkbox" class="switch" data-gpu ${a.settings.gpu ? 'checked' : ''} aria-label="Let this app use the graphics chip"></div><span class="muted">Lets the app use this mini PC's graphics chip, for faster video.</span></div>` : ''}
       </div>
@@ -250,10 +281,11 @@ async function appSettingsDraw(w, id) {
     pane.innerHTML = `<h1>Share online</h1><p class="muted">Reach ${esc(a.name)} from outside your home through playit.gg. No router setup needed.</p>
       ${!d.playitLinked ? `<div class="note info">Link a playit account first.</div><div><button class="btn pri" data-pl>Set up sharing</button></div>` : `
       <div class="box"><div class="between"><strong>Share ${esc(a.name)} online</strong><input type="checkbox" class="switch" data-sw ${d.tunnel ? 'checked' : ''} aria-label="Share ${esc(a.name)} online"></div>
-      ${d.tunnel ? (d.tunnel.address ? `<div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(d.tunnel.address)}</code><button class="btn sm" data-copy>Copy</button></div><span class="muted">Anyone with this address reaches ${esc(a.name)}'s own sign-in page. Use a strong password there.</span>` : '<div class="row"><span class="spinner dark"></span><span class="muted">Getting its address from playit…</span></div>') : '<span class="muted">Off: only reachable at home.</span>'}</div>`}`;
+      ${d.tunnel ? (d.tunnel.address ? `<div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(d.tunnel.address)}</code><button class="btn sm" data-copy1>Copy</button></div><span class="muted">Anyone with this address reaches ${esc(a.name)}'s own sign-in page. Use a strong password there.</span>` : '<div class="row"><span class="spinner dark"></span><span class="muted">Getting its address from playit…</span></div>') : '<span class="muted">Off: only reachable at home.</span>'}</div>`}`;
+    if (d.playitLinked) { pane.insertAdjacentHTML('beforeend', secureBox({ secure: d.secure, premium: d.playitPremium, port: d.port, what: 'each app', canSetUp: true })); secureWire(pane, redraw, async () => !!(await GET(`/api/apps/${id}`)).secure); }
     const pl = $('[data-pl]', pane); if (pl) pl.onclick = () => openSettings('sharing');
     const sw = $('[data-sw]', pane); if (sw) sw.onchange = async () => { sw.disabled = true; try { await PUT(`/api/apps/${id}/share`, { on: sw.checked }); } catch (e) { oops(e); } redraw(); };
-    const cp = $('[data-copy]', pane); if (cp) cp.onclick = () => copyText(d.tunnel.address);
+    const cp = $('[data-copy1]', pane); if (cp) cp.onclick = () => copyText(d.tunnel.address);
     if (d.tunnel && !d.tunnel.address) setTimeout(() => { if (w.tab === 'sharing' && document.body.contains(pane)) appSettingsDraw(w, id); }, 5000);
   } else if (w.tab === 'access') {
     let acc; try { acc = await GET(`/api/apps/${id}/access`); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
@@ -324,7 +356,7 @@ async function setSharing(w, pane) {
     ${p.linked ? `<div class="box"><div class="row"><span class="badge ok">playit linked</span>${p.premium ? '<span class="badge prem">Premium</span>' : ''}<span class="badge ${p.agentRunning ? 'ok' : 'warn'}">${p.agentRunning ? 'Agent running' : 'Agent not running'}</span><span class="grow"></span><a href="https://playit.gg/account" target="_blank" rel="noopener">Open playit.gg</a>${d.canAccount ? '<button class="btn sm danger" data-unlink>Unlink</button>' : ''}</div>${p.problem ? `<div class="note warn">${esc(p.problem)}</div>` : ''}</div>`
       : d.canAccount ? `<div class="box"><h3>Link playit</h3><span class="muted">playit.gg is a free service that gives your apps an address on the internet, without changing anything on your router.</span><div data-link></div></div>` : '<div class="note info">Sharing online isn\'t set up on this server yet. Ask the owner.</div>'}
     ${p.linked && d.canRemote ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>Reach ZeroOS from outside</h3><span class="muted">Open this desktop when you are away from home.</span></div><input type="checkbox" class="switch" data-remote ${d.remote.on ? 'checked' : ''} aria-label="Reach ZeroOS from outside"></div>
-      ${d.remote.on ? (d.remote.address ? `<div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(d.remote.address)}</code><button class="btn sm" data-copy="${esc(d.remote.address)}">Copy</button></div><span class="muted">The first time, your browser warns that it doesn't know this site's certificate. That is expected: ZeroOS makes its own. Choose "Advanced" and continue. The connection is encrypted. Away from home, apps open in a new tab and need Share online turned on.</span>` : '<div class="row"><span class="spinner dark"></span><span class="muted">Getting its address from playit…</span></div>') : (d.twoStep ? '' : '<div class="note info">Turn on two-step sign-in for your account first. It protects ZeroOS once it can be reached from the internet. <button class="link" data-2fa>Go to Profile</button></div>')}</div>` : ''}
+      ${d.remote.on ? (d.remote.address ? `<div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(d.remote.address)}</code><button class="btn sm" data-copy="${esc(d.remote.address)}">Copy</button></div><span class="muted">The first time, your browser warns that it doesn't know this site's certificate. That is expected: ZeroOS makes its own. Choose "Advanced" and continue. The connection is encrypted. Away from home, apps open in a new tab and need Share online turned on.</span>` : '<div class="row"><span class="spinner dark"></span><span class="muted">Getting its address from playit…</span></div>') : (d.twoStep ? '' : '<div class="note info">Turn on two-step sign-in for your account first. It protects ZeroOS once it can be reached from the internet. <button class="link" data-2fa>Go to Profile</button></div>')}</div>${d.remote.on || d.remote.secure ? secureBox({ secure: d.remote.secure, premium: p.premium, port: d.remote.webPort, what: 'ZeroOS itself', canSetUp: true }) : ''}${d.remote.secure && !d.remote.on ? '<div class="note info">This secure address is closed while "Reach ZeroOS from outside" is off.</div>' : ''}` : ''}
     ${p.linked ? `<h2>Apps</h2>${tunnelList(d.tunnels.filter((t) => t.kind === 'app'), 'No app is shared online. Turn it on in an app\'s settings (right-click the app › Share online).')}
     <h2>Shared ports</h2>${tunnelList(d.tunnels.filter((t) => t.kind === 'port'), 'For things without their own switch, like a game server made inside Pterodactyl.')}` : ''}`;
   const again = () => { settingsDraw(w); refresh(); };
@@ -333,6 +365,7 @@ async function setSharing(w, pane) {
   const rs = $('[data-remote]', pane); if (rs) rs.onchange = async () => { rs.disabled = true; try { await PUT('/api/sharing/remote', { on: rs.checked }); } catch (e) { oops(e); } again(); };
   const tf = $('[data-2fa]', pane); if (tf) tf.onclick = () => w.go('profile');
   $$('[data-copy]', pane).forEach((b) => b.onclick = () => copyText(b.dataset.copy));
+  secureWire(pane, again, async () => !!(await GET('/api/sharing')).remote.secure);
   $$('[data-stop]', pane).forEach((b) => b.onclick = () => busy(b, async () => { await DEL('/api/sharing/tunnels/' + b.dataset.stop); again(); }));
   const pb = $('[data-port]', pane); if (pb) pb.onclick = () => {
     const dl = dialog(`<h2>Share a port</h2><p class="muted">For things without their own switch, like a game server made in Pterodactyl. You'll find the port in that app.</p>
@@ -346,7 +379,8 @@ async function setSharing(w, pane) {
 function tunnelList(list, emptyText) {
   if (!list.length) return `<p class="muted">${emptyText}</p>`;
   return `<div class="list">${list.map((t) => `<div class="lrow">${t.kind === 'app' ? icon(t.storeId, t.name) : ''}<strong style="flex:1 1 9em">${esc(t.name)}</strong>${t.kind === 'port' ? `<span class="muted">Port ${t.localPort} · ${esc(t.proto === 'both' ? 'TCP + UDP' : t.proto.toUpperCase())}</span>` : ''}
-    ${t.address ? `<code class="addr" style="flex:1 1 22em">${esc(t.address)}</code><button class="btn sm" data-copy="${esc(t.address)}">Copy</button>` : '<span class="muted" style="flex:1 1 12em">Getting its address…</span>'}${t.canRemove ? `<button class="btn sm" data-stop="${t.id}">Stop sharing</button>` : ''}</div>`).join('')}</div>`;
+    ${t.secure ? `<code class="addr" style="flex:1 1 22em">${esc(t.secure)}</code><button class="btn sm" data-copy="${esc(t.secure)}">Copy</button>` : ''}
+    ${t.id ? (t.address ? `<code class="addr" style="flex:1 1 22em">${esc(t.address)}</code><button class="btn sm" data-copy="${esc(t.address)}">Copy</button>` : '<span class="muted" style="flex:1 1 12em">Getting its address…</span>') : ''}${t.canRemove ? `<button class="btn sm" data-stop="${t.id}">Stop sharing</button>` : ''}</div>`).join('')}</div>`;
 }
 
 async function setSystem(w, pane) {

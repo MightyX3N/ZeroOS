@@ -90,3 +90,41 @@ func TestAsciiName(t *testing.T) {
 		}
 	}
 }
+
+func TestSecureTunnels(t *testing.T) {
+	p, fake := setup(t)
+	if _, err := p.CreateTunnel("ZeroOS - Jellyfin", 20000, "tcp"); err != nil {
+		t.Fatal(err)
+	}
+	p.Refresh()
+	if p.Premium() || p.SecureFor(20000) != nil {
+		t.Fatal("a plain tunnel is not a secure address")
+	}
+	fake.Premium = true
+	fake.HTTPS = []playittest.HTTPS{
+		{Name: "films", Host: "films.playit.plus", HTTPPort: 20000, Cert: true},
+		{Name: "no cert", Host: "other.playit.plus", HTTPPort: 20001},
+	}
+	p.Refresh()
+	x := p.SecureFor(20000)
+	if !p.Premium() || x == nil || x.URL() != "https://films.playit.plus" || !x.Cert {
+		t.Fatalf("got %+v", x)
+	}
+	if y := p.SecureFor(20001); y == nil || y.Cert {
+		t.Fatalf("a tunnel without playit's certificate must say so: %+v", y)
+	}
+	if p.SecureFor(0) != nil || p.SecureFor(20002) != nil {
+		t.Fatal("matched a port no tunnel points at")
+	}
+}
+
+func TestHostOf(t *testing.T) {
+	for in, want := range map[string]string{
+		"films.playit.plus": "films.playit.plus", "https://Films.playit.plus:443/": "films.playit.plus",
+		"a.b.example.com:8443": "a.b.example.com", "localhost": "", "": "", "147.185.221.220:41260": "147.185.221.220",
+	} {
+		if got := hostOf(in); got != want {
+			t.Errorf("hostOf(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -184,6 +184,7 @@ type tunnelRow struct {
 	LocalPort int    `json:"localPort,omitempty"`
 	Proto     string `json:"proto"`
 	Address   string `json:"address"`
+	Secure    string `json:"secure,omitempty"` // https address made on playit.gg
 	CanRemove bool   `json:"canRemove"`
 }
 
@@ -212,7 +213,32 @@ func (s *Server) tunnels(u *userView) []tunnelRow {
 		}
 		out = append(out, t)
 	}
+	// Apps with a secure address made on playit.gg, shared the plain way or not.
+	seen := map[string]int{}
+	for i, t := range out {
+		if t.Kind == "app" {
+			seen[t.AppID] = i + 1
+		}
+	}
+	for _, a := range s.appList() {
+		x := s.Playit.SecureFor(a.Port)
+		if x == nil || !s.Auth.CanApp(u.User, a.ID, "app.view") {
+			continue
+		}
+		if i := seen[a.ID]; i > 0 {
+			out[i-1].Secure = x.URL()
+		} else {
+			out = append(out, tunnelRow{Kind: "app", AppID: a.ID, StoreID: a.StoreID, Name: a.Name, Proto: "tcp", Secure: x.URL()})
+		}
+	}
 	return out
+}
+
+// sharingRefresh asks playit again, for "Check now" after making a tunnel on playit.gg.
+func (s *Server) sharingRefresh(w http.ResponseWriter, r *http.Request) {
+	s.Playit.Refresh()
+	s.refreshTunnelAddresses()
+	ok(w, map[string]bool{"ok": true})
 }
 
 type userView struct{ *auth.User }

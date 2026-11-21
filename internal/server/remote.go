@@ -86,13 +86,71 @@ func isHomeHost(hostport string) bool {
 	return host == "localhost" || strings.HasSuffix(strings.ToLower(host), ".local") || !strings.Contains(host, ".")
 }
 
+// webPort is the plain port the web UI listens on at home (default 80).
+func (s *Server) webPort() int {
+	_, p, err := net.SplitHostPort(s.C.Cfg.Listen)
+	if err != nil {
+		return 80
+	}
+	n, _ := strconv.Atoi(p)
+	return n
+}
+
+// secureInfo describes an HTTPS tunnel found on playit for a local port.
+func (s *Server) secureInfo(port int) map[string]any {
+	x := s.Playit.SecureFor(port)
+	if x == nil {
+		return nil
+	}
+	return map[string]any{"address": x.URL(), "cert": x.Cert, "problem": x.Problem, "name": x.Name}
+}
+
+// viaTunnel tells whether a request came in through playit's HTTPS tunnel:
+// the agent on this computer decrypts it and passes it on to the plain port.
+func viaTunnel(r *http.Request) bool {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") != "https" {
+		return false
+	}
+	h, _, err := net.SplitHostPort(r.RemoteAddr)
+	ip := net.ParseIP(h)
+	return err == nil && ip != nil && ip.IsLoopback()
+}
+
+func (s *Server) remoteOn() bool {
+	var id int64
+	return s.C.DB.QueryRow(`SELECT id FROM tunnels WHERE kind='zeroos'`).Scan(&id) == nil
+}
+
+// guardRemote refuses visitors who arrive at ZeroOS's own secure address
+// while "Reach ZeroOS from outside" is turned off.
+func (s *Server) guardRemote(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if x := s.Playit.SecureFor(s.webPort()); x != nil && r.TLS == nil && !s.remoteOn() {
+			host := r.Host
+			if hh, _, err := net.SplitHostPort(host); err == nil {
+				host = hh
+			}
+			if strings.EqualFold(host, x.Host) {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte("Reaching ZeroOS from outside is turned off.\n\nTurn it on at home: Settings > Sharing online > Reach ZeroOS from outside.\n"))
+				return
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) remoteInfo() map[string]any {
 	var id int64
 	var addr string
 	on := s.C.DB.QueryRow(`SELECT id,address FROM tunnels WHERE kind='zeroos'`).Scan(&id, &addr) == nil
-	out := map[string]any{"on": on}
+	out := map[string]any{"on": on, "webPort": s.webPort()}
 	if on && addr != "" {
 		out["address"] = "https://" + addr
+	}
+	if sec := s.secureInfo(s.webPort()); sec != nil {
+		out["secure"] = sec
 	}
 	return out
 }

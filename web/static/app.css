@@ -207,3 +207,8 @@ tr:last-child td{border-bottom:0}
   .split{flex-direction:column!important}
   .split>[data-ul]{border-right:0!important;border-bottom:1px solid var(--line);flex:none!important}
 }
+
+.steps-list{margin:.7em 0;padding-left:1.4em;display:flex;flex-direction:column;gap:.6em;line-height:1.5}
+.steps-list li>div{margin-top:.4em}
+.steps-list code.addr{padding:.15em .5em}
+details>summary.link{display:inline-block;font-weight:600}

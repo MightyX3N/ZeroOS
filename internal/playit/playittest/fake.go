@@ -24,8 +24,18 @@ type Tunnel struct {
 	PublicPort      int
 }
 
+// HTTPS is a "Website (HTTPS)" tunnel as a person makes it on playit.gg.
+type HTTPS struct {
+	Name     string `json:"name"`
+	Host     string `json:"host"`      // films.playit.plus
+	HTTPPort int    `json:"http_port"` // local port
+	Cert     bool   `json:"cert"`      // TLS Termination = letsencrypt
+}
+
 type Fake struct {
 	mu      sync.Mutex
+	Premium bool
+	HTTPS   []HTTPS
 	Tunnels []Tunnel
 	Claims  map[string]int // claim code -> times polled
 	n       int
@@ -102,6 +112,18 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(f.Tunnels)
 		return
 	}
+	if path == "/_account" { // for tests: what a person did on playit.gg
+		var in struct {
+			Premium bool    `json:"premium"`
+			HTTPS   []HTTPS `json:"https"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			w.WriteHeader(400)
+			return
+		}
+		f.Premium, f.HTTPS = in.Premium, in.HTTPS
+		return
+	}
 	if strings.HasPrefix(path, "/claim/") {
 		f.claim(w, r)
 		return
@@ -122,8 +144,27 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			badBody(w)
 			return
 		}
-		send(w, "success", map[string]any{"agent_id": AgentID, "tunnels": []any{}, "pending": []any{}, "notices": []any{},
-			"permissions": map[string]any{"is_self_managed": true, "has_premium": false, "account_status": "verified"}})
+		// Shaped like the real answer: what this agent runs, HTTPS tunnels included.
+		list := []any{}
+		field := func(n, v string) map[string]string { return map[string]string{"name": n, "value": v} }
+		for i, t := range f.Tunnels {
+			list = append(list, map[string]any{"id": t.ID, "internal_id": 5000 + i, "name": t.Name,
+				"display_address": fmt.Sprintf("test-name.gl.at.ply.gg:%d", t.PublicPort), "port_type": t.Proto, "port_count": 1,
+				"tunnel_type": nil, "tunnel_type_display": "TCP", "disabled_reason": nil,
+				"agent_config": map[string]any{"fields": []any{field("local_ip", "127.0.0.1"), field("local_port", t.LocalPort)}}})
+		}
+		for i, h := range f.HTTPS {
+			fields := []any{field("http_port", fmt.Sprint(h.HTTPPort)), field("https_port", "0"), field("local_ip", "127.0.0.1")}
+			if h.Cert {
+				fields = append(fields, field("tls_termination", "letsencrypt"))
+			}
+			list = append(list, map[string]any{"id": fmt.Sprintf("00000000-0000-4000-9000-%012d", i+1), "internal_id": 9000 + i, "name": h.Name,
+				"display_address": h.Host, "port_type": "tcp", "port_count": 2,
+				"tunnel_type": "https", "tunnel_type_display": "HTTPs", "disabled_reason": nil,
+				"agent_config": map[string]any{"fields": fields}})
+		}
+		send(w, "success", map[string]any{"agent_id": AgentID, "tunnels": list, "pending": []any{}, "notices": []any{},
+			"permissions": map[string]any{"is_self_managed": true, "has_premium": f.Premium, "account_status": "verified"}})
 	case "/v1/tunnels/create":
 		var in createReq
 		if !strict(r, &in) || in.Name == nil || in.Protocol == nil || in.Origin == nil || in.Origin.Data == nil ||

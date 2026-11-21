@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestIsHomeHost(t *testing.T) {
 	for host, want := range map[string]bool{
@@ -11,5 +15,25 @@ func TestIsHomeHost(t *testing.T) {
 		if got := isHomeHost(host); got != want {
 			t.Errorf("isHomeHost(%q) = %v, want %v", host, got, want)
 		}
+	}
+}
+
+func TestViaTunnel(t *testing.T) {
+	mk := func(remote, proto string) *http.Request {
+		r := httptest.NewRequest("GET", "http://films.playit.plus/", nil)
+		r.RemoteAddr = remote
+		if proto != "" {
+			r.Header.Set("X-Forwarded-Proto", proto)
+		}
+		return r
+	}
+	if !viaTunnel(mk("127.0.0.1:5555", "https")) || !viaTunnel(mk("[::1]:5555", "https")) {
+		t.Error("the agent on this computer passing on an https request is a tunnel visit")
+	}
+	if viaTunnel(mk("192.168.1.50:5555", "https")) {
+		t.Error("another computer can't claim to be the tunnel")
+	}
+	if viaTunnel(mk("127.0.0.1:5555", "")) || viaTunnel(mk("127.0.0.1:5555", "http")) {
+		t.Error("a plain local request is not a tunnel visit")
 	}
 }

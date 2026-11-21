@@ -50,7 +50,7 @@ input[type=checkbox],input[type=radio]{width:1.2em;height:1.2em;accent-color:var
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(15em,1fr));gap:.8em}
 .meter{height:.55em;background:#EEF0F2;border-radius:99px;overflow:hidden}
 .meter>span{display:block;height:100%;background:var(--accent);border-radius:99px}
-code.addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.84em;background:#F2F9FB;color:var(--accent-d);padding:.45em .6em;border-radius:.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+code.addr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.84em;background:#F2F9FB;color:var(--accent-d);padding:.45em .6em;border-radius:.5em;overflow-wrap:anywhere;min-width:0}
 pre.log{margin:0;background:#0B1220;color:#D6DAE1;border-radius:.7em;padding:1em;font:0.8em/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;overflow:auto;max-height:55vh}
 .tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:.7em}
 table{width:100%;border-collapse:collapse;font-size:.9em}

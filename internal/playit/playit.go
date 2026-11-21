@@ -12,24 +12,36 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MightyX3N/zeroos/internal/core"
 )
 
 var (
-	APIBase    = "https://api.playit.gg"
+	// APIBase can be pointed elsewhere with ZEROOS_PLAYIT_API (for tests).
+	APIBase    = envOr("ZEROOS_PLAYIT_API", "https://api.playit.gg")
 	AgentImage = "ghcr.io/playit-cloud/playit-agent:latest"
 )
 
 const containerName = "zeroos-playit"
 
+func envOr(k, d string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
+}
+
 type Playit struct {
 	c      *core.Core
 	client *http.Client
+	claim  sync.Mutex // one claim check at a time
 }
 
 func New(c *core.Core) *Playit {
@@ -62,6 +74,7 @@ func (p *Playit) call(path string, body any, secret string, out any) error {
 		return fmt.Errorf("playit.gg sent an unexpected answer (HTTP %d)", resp.StatusCode)
 	}
 	if r.Status != "success" {
+		log.Printf("playit: %s answered %s: %s", path, r.Status, string(r.Data))
 		return &FailError{Status: r.Status, Data: string(r.Data)}
 	}
 	if out != nil {
@@ -89,6 +102,14 @@ func (e *FailError) Error() string {
 		return "The playit key isn't valid any more. Link playit again."
 	case "RequiresVerifiedAccount":
 		return "Your playit account needs a verified email before it can make tunnels."
+	case "RequiresPlayitPremium", "RegionRequiresPlayitPremium", "PublicPortRequiresPlayitPremium":
+		return "playit.gg only allows this with Premium."
+	case "AgentNotFound", "InvalidAgentId":
+		return "playit.gg doesn't know this computer any more. Link playit again."
+	case "AgentVersionTooOld":
+		return "The playit agent is too old. Restart ZeroOS to fetch the new one."
+	case "failed to parse body":
+		return "playit.gg changed how tunnels are made and this ZeroOS doesn't know the new way yet. Update ZeroOS."
 	case "TunnelLimitReached", "PortAllocationLimitReached":
 		return "Your playit account has no tunnels left. Remove one, or upgrade to Premium."
 	}
@@ -116,6 +137,8 @@ func (p *Playit) StartClaim() string {
 // PollClaim checks whether the claim was approved, and finishes linking if so.
 // Returns a state: waiting, approve, linked, rejected.
 func (p *Playit) PollClaim() (string, error) {
+	p.claim.Lock()
+	defer p.claim.Unlock()
 	code := p.c.Setting("playit_claim")
 	if code == "" {
 		if p.Linked() {
@@ -143,7 +166,9 @@ func (p *Playit) PollClaim() (string, error) {
 		if err := p.call("/claim/exchange", map[string]any{"code": code}, "", &key); err != nil {
 			return "approve", nil // not ready yet
 		}
-		if err := p.SetSecret(key.SecretKey); err != nil {
+		// The key is what links the account. If the agent can't start right
+		// now, that shows as "Agent not running" and is retried later.
+		if err := p.SetSecret(key.SecretKey); err != nil && !p.Linked() {
 			return "", err
 		}
 		_ = p.c.SetSetting("playit_claim", "")
@@ -233,6 +258,54 @@ func (p *Playit) Info() Info {
 	return in
 }
 
+// asciiName makes a name playit accepts: plain ASCII, 3 to 60 characters.
+func asciiName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r >= 32 && r < 127 {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	n := strings.Join(strings.Fields(b.String()), " ")
+	if len(n) > 60 {
+		n = strings.TrimSpace(n[:60])
+	}
+	for len(n) < 3 {
+		n += "-"
+	}
+	return n
+}
+
+// tunnelRequest is the body of /v1/tunnels/create, in the shape playit.gg's
+// own website sends it: what to carry (protocol), where it ends up (origin:
+// this computer's agent and a local port) and where people connect (endpoint:
+// "global" is playit's free network).
+func tunnelRequest(name, agentID string, localPort int, proto string) map[string]any {
+	if proto != "udp" && proto != "both" {
+		proto = "tcp"
+	}
+	name = asciiName(name)
+	return map[string]any{
+		"name": name,
+		"protocol": map[string]any{"type": "raw-ports", "details": map[string]any{
+			"port_type":            proto,
+			"port_count":           1,
+			"software_description": name,
+		}},
+		"origin": map[string]any{"type": "agent", "data": map[string]any{
+			"agent_id": agentID,
+			"config": map[string]any{"fields": []map[string]string{
+				{"name": "local_ip", "value": "127.0.0.1"},
+				{"name": "local_port", "value": fmt.Sprint(localPort)},
+			}},
+		}},
+		"endpoint": map[string]any{"type": "region", "details": map[string]any{"region": "global", "port": nil}},
+		"enabled":  true,
+	}
+}
+
 // CreateTunnel makes a playit tunnel to a local port and returns its id.
 func (p *Playit) CreateTunnel(name string, localPort int, proto string) (string, error) {
 	if !p.Linked() {
@@ -242,29 +315,14 @@ func (p *Playit) CreateTunnel(name string, localPort int, proto string) (string,
 	if err := p.call("/v1/agents/rundata", map[string]any{}, p.secret(), &rd); err != nil {
 		return "", err
 	}
-	kind := map[string]string{"tcp": "custom-tcp", "udp": "custom-udp", "both": "custom-both"}[proto]
-	if kind == "" {
-		kind = "custom-tcp"
-	}
-	req := map[string]any{
-		"name":    name,
-		"ports":   map[string]any{"type": kind, "details": 1},
-		"enabled": true,
-		"alloc":   nil,
-		"origin": map[string]any{"type": "agent", "data": map[string]any{
-			"agent_id": rd.AgentID,
-			"config": map[string]any{"fields": []map[string]string{
-				{"name": "local_ip", "value": "127.0.0.1"},
-				{"name": "local_port", "value": fmt.Sprint(localPort)},
-			}},
-		}},
-		"firewall_id": nil,
-	}
 	var res struct {
 		ID string `json:"id"`
 	}
-	if err := p.call("/v1/tunnels/create", req, p.secret(), &res); err != nil {
+	if err := p.call("/v1/tunnels/create", tunnelRequest(name, rd.AgentID, localPort, proto), p.secret(), &res); err != nil {
 		return "", err
+	}
+	if res.ID == "" {
+		return "", errors.New("playit.gg made the tunnel but didn't say which one. Look at playit.gg, then try again.")
 	}
 	return res.ID, nil
 }
@@ -274,7 +332,12 @@ func (p *Playit) DeleteTunnel(id string) error {
 	if id == "" || !p.Linked() {
 		return nil
 	}
-	return p.call("/tunnels/delete", map[string]any{"tunnel_id": id}, p.secret(), nil)
+	err := p.call("/tunnels/delete", map[string]any{"tunnel_id": id}, p.secret(), nil)
+	var fe *FailError
+	if errors.As(err, &fe) && strings.Contains(fe.Data, "TunnelNotFound") {
+		return nil // already removed on playit.gg
+	}
+	return err
 }
 
 // Addresses returns the public address of each tunnel on the account.
@@ -295,10 +358,13 @@ func (p *Playit) Addresses() (map[string]string, error) {
 	}
 	out := map[string]string{}
 	for _, t := range res.Tunnels {
+		// a name with a port ("x.gl.joinmc.link:1234") is the one to hand out;
+		// "ip4"/"ip6" entries carry no port.
+		best := 99
 		for _, c := range t.Connects {
-			if c.Value.Address != "" {
-				out[t.ID] = c.Value.Address
-				break
+			rank, ok := map[string]int{"domain": 0, "auto": 1, "addr4": 2, "addr6": 3}[c.Type]
+			if ok && c.Value.Address != "" && rank < best {
+				best, out[t.ID] = rank, c.Value.Address
 			}
 		}
 	}

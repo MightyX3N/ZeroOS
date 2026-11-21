@@ -121,7 +121,7 @@ func (s *Server) setRemote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = s.C.DB.Exec(`INSERT INTO tunnels(kind,name,local_port,proto,playit_id,created_by,created) VALUES('zeroos','ZeroOS',?,?,?,?,?)`, s.tlsPort(), "tcp", pid, u.ID, time.Now().Unix())
-		go s.refreshTunnelAddresses()
+		go s.chaseAddresses()
 	}
 	if !in.On && exists {
 		err := s.Playit.DeleteTunnel(pid)

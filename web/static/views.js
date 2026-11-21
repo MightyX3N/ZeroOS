@@ -346,7 +346,7 @@ async function setSharing(w, pane) {
 function tunnelList(list, emptyText) {
   if (!list.length) return `<p class="muted">${emptyText}</p>`;
   return `<div class="list">${list.map((t) => `<div class="lrow">${t.kind === 'app' ? icon(t.storeId, t.name) : ''}<strong style="flex:1 1 9em">${esc(t.name)}</strong>${t.kind === 'port' ? `<span class="muted">Port ${t.localPort} · ${esc(t.proto === 'both' ? 'TCP + UDP' : t.proto.toUpperCase())}</span>` : ''}
-    ${t.address ? `<code class="addr" style="flex:1 1 12em">${esc(t.address)}</code><button class="btn sm" data-copy="${esc(t.address)}">Copy</button>` : '<span class="muted" style="flex:1 1 12em">Getting its address…</span>'}${t.canRemove ? `<button class="btn sm" data-stop="${t.id}">Stop sharing</button>` : ''}</div>`).join('')}</div>`;
+    ${t.address ? `<code class="addr" style="flex:1 1 22em">${esc(t.address)}</code><button class="btn sm" data-copy="${esc(t.address)}">Copy</button>` : '<span class="muted" style="flex:1 1 12em">Getting its address…</span>'}${t.canRemove ? `<button class="btn sm" data-stop="${t.id}">Stop sharing</button>` : ''}</div>`).join('')}</div>`;
 }
 
 async function setSystem(w, pane) {

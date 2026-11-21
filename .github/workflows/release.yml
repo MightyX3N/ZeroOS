@@ -1,33 +1,51 @@
-# Builds ZeroOS for Intel/AMD and ARM and publishes a GitHub release when a tag like v0.1.0 is pushed.
+# Builds ZeroOS for Intel/AMD and ARM and publishes a GitHub release.
+# A release is made when the number in the VERSION file changes on main,
+# or when a tag like v0.1.0 is pushed or a release is made on github.com.
 name: Release
 on:
   push:
+    branches: [main]
+    paths: [VERSION]
     tags: ['v*']
 permissions:
   contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: Which version
+        id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag="$GITHUB_REF_NAME"; else tag="v$(tr -d ' \n\r' < VERSION)"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # On main, do nothing when this version was released before.
+          if [ "$GITHUB_REF_TYPE" != tag ] && gh release view "$tag" >/dev/null 2>&1; then echo "skip=yes" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-go@v5
+        if: steps.v.outputs.skip != 'yes'
         with:
           go-version-file: go.mod
       - name: Test
+        if: steps.v.outputs.skip != 'yes'
         run: go vet ./... && go test ./...
       - name: Build
+        if: steps.v.outputs.skip != 'yes'
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
           mkdir dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X github.com/MightyX3N/zeroos/internal/core.Version=${GITHUB_REF_NAME#v}" \
+              -ldflags "-s -w -X github.com/MightyX3N/zeroos/internal/core.Version=${TAG#v}" \
               -o dist/zeroos-linux-$arch ./cmd/zeroos
           done
           cd dist && sha256sum zeroos-linux-* > checksums.txt
       - name: Publish
+        if: steps.v.outputs.skip != 'yes'
         env:
-          GH_TOKEN: ${{ github.token }}
-        # Works both when the tag was pushed on its own and when the release was made on github.com.
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "ZeroOS ${GITHUB_REF_NAME#v}" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "ZeroOS ${TAG#v}" --generate-notes
+          gh release upload "$TAG" dist/* --clobber

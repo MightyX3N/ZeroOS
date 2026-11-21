@@ -302,14 +302,14 @@ func (s *Server) appShare(w http.ResponseWriter, r *http.Request) {
 	var pid string
 	exists := s.C.DB.QueryRow(`SELECT id,playit_id FROM tunnels WHERE kind='app' AND app_id=?`, id).Scan(&tid, &pid) == nil
 	if in.On && !exists {
-		pid, err := s.Playit.CreateTunnel("ZeroOS · "+a.Name, a.Port, "tcp")
+		pid, err := s.Playit.CreateTunnel("ZeroOS - "+a.Name, a.Port, "tcp")
 		s.log(r, "shared online", a.Name, id, err == nil, errText(err))
 		if err != nil {
 			failErr(w, err)
 			return
 		}
 		_, _ = s.C.DB.Exec(`INSERT INTO tunnels(kind,app_id,name,local_port,proto,playit_id,created_by,created) VALUES('app',?,?,?,?,?,?,?)`, id, a.Name, a.Port, "tcp", pid, u.ID, time.Now().Unix())
-		go s.refreshTunnelAddresses()
+		go s.chaseAddresses()
 	}
 	if !in.On && exists {
 		err := s.Playit.DeleteTunnel(pid)
@@ -342,14 +342,14 @@ func (s *Server) sharePort(w http.ResponseWriter, r *http.Request) {
 	if in.Proto != "tcp" && in.Proto != "udp" && in.Proto != "both" {
 		in.Proto = "both"
 	}
-	pid, err := s.Playit.CreateTunnel("ZeroOS · "+in.Name, in.Port, in.Proto)
+	pid, err := s.Playit.CreateTunnel("ZeroOS - "+in.Name, in.Port, in.Proto)
 	s.log(r, "shared a port online", fmt.Sprintf("%s (%d)", in.Name, in.Port), "", err == nil, errText(err))
 	if err != nil {
 		failErr(w, err)
 		return
 	}
 	_, _ = s.C.DB.Exec(`INSERT INTO tunnels(kind,name,local_port,proto,playit_id,created_by,created) VALUES('port',?,?,?,?,?,?)`, in.Name, in.Port, in.Proto, pid, u.ID, time.Now().Unix())
-	go s.refreshTunnelAddresses()
+	go s.chaseAddresses()
 	ok(w, map[string]bool{"ok": true})
 }
 
@@ -383,7 +383,21 @@ func (s *Server) refreshTunnelAddresses() {
 		return
 	}
 	for pid, addr := range addrs {
-		_, _ = s.C.DB.Exec(`UPDATE tunnels SET address=? WHERE playit_id=?`, addr, pid)
+		_, _ = s.C.DB.Exec(`UPDATE tunnels SET address=? WHERE playit_id=? AND address<>?`, addr, pid, addr)
+	}
+}
+
+// chaseAddresses asks playit for the address of new tunnels until each has
+// one. playit hands the address out a moment after the tunnel is made.
+func (s *Server) chaseAddresses() {
+	for _, wait := range []time.Duration{0, 2, 3, 5, 10, 20, 40} {
+		time.Sleep(wait * time.Second)
+		s.refreshTunnelAddresses()
+		var missing int
+		_ = s.C.DB.QueryRow(`SELECT COUNT(*) FROM tunnels WHERE address=''`).Scan(&missing)
+		if missing == 0 {
+			return
+		}
 	}
 }
 

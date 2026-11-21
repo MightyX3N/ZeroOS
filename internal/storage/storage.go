@@ -338,6 +338,35 @@ func (s *Storage) KeepConnected(ctx context.Context, onChange func()) {
 type FoundNAS struct {
 	Host string `json:"host"`
 	Name string `json:"name"`
+	// NAS is true when it also has a management page, like a NAS does.
+	// An ordinary PC that shares folders has none.
+	NAS bool `json:"nas"`
+}
+
+// nasPorts are where NAS systems serve their management page (Synology 5000/5001,
+// UGREEN 9999/9443, QNAP 8080, and plain web ports for the rest).
+var nasPorts = []string{"5000", "5001", "9999", "9443", "8080", "80", "443"}
+
+// looksLikeNAS tells a NAS from a PC that merely shares folders.
+func looksLikeNAS(ctx context.Context, host string) bool {
+	hit := make(chan bool, len(nasPorts))
+	for _, port := range nasPorts {
+		go func(port string) {
+			d := net.Dialer{Timeout: 500 * time.Millisecond}
+			conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
+			if err == nil {
+				conn.Close()
+			}
+			hit <- err == nil
+		}(port)
+	}
+	found := false
+	for range nasPorts {
+		if <-hit {
+			found = true
+		}
+	}
+	return found
 }
 
 // Discover looks for SMB servers (port 445) on the local networks.
@@ -392,13 +421,19 @@ func Discover(ctx context.Context) []FoundNAS {
 			if names, err := net.DefaultResolver.LookupAddr(ctx, ip.String()); err == nil && len(names) > 0 {
 				name = strings.TrimSuffix(strings.Split(names[0], ".")[0], ".")
 			}
+			nas := looksLikeNAS(ctx, ip.String())
 			mu.Lock()
-			found = append(found, FoundNAS{Host: ip.String(), Name: name})
+			found = append(found, FoundNAS{Host: ip.String(), Name: name, NAS: nas})
 			mu.Unlock()
 		}(ip)
 	}
 	wg.Wait()
-	sort.Slice(found, func(i, j int) bool { return found[i].Host < found[j].Host })
+	sort.Slice(found, func(i, j int) bool {
+		if found[i].NAS != found[j].NAS {
+			return found[i].NAS
+		}
+		return found[i].Host < found[j].Host
+	})
 	return found
 }
 

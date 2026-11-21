@@ -318,7 +318,7 @@ func (s *Server) background(ctx context.Context) {
 	}()
 	go func() {
 		// Keep trying until the store has its catalog (the network may not be up yet at boot).
-		for wait := 5 * time.Second; s.Cat.Count() == 0; {
+		for wait := 5 * time.Second; !s.Cat.Downloaded(); {
 			err := s.Cat.Sync()
 			if err == nil {
 				break

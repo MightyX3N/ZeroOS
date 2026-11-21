@@ -4,11 +4,12 @@ package apps
 import (
 	"archive/tar"
 	"compress/gzip"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +25,13 @@ import (
 // RuntipiURL is the Runtipi app store (GPL-3.0), read as a GitHub tarball.
 // HEAD follows the catalog's default branch, whatever it is called.
 var RuntipiURL = "https://codeload.github.com/runtipi/runtipi-appstore/tar.gz/HEAD"
+
+// builtin holds the apps ZeroOS brings itself, in the same format as the
+// catalog. They are for apps the catalog lacks or that need setting up after
+// they start (a setup.sh next to the app), so they work right after install.
+//
+//go:embed all:builtin
+var builtinFS embed.FS
 
 //go:embed verified.json
 var verifiedJSON []byte
@@ -98,11 +106,47 @@ func NewCatalog(c *core.Core) *Catalog {
 		cat.verified[id] = true
 	}
 	_ = json.Unmarshal(overridesJSON, &cat.over)
+	cat.unpackBuiltin()
 	_ = cat.Load()
 	return cat
 }
 
 func (cat *Catalog) runtipiDir() string { return filepath.Join(cat.c.Cfg.StoreDir(), "runtipi") }
+func (cat *Catalog) builtinDir() string { return filepath.Join(cat.c.Cfg.StoreDir(), "zeroos") }
+
+// unpackBuiltin writes ZeroOS's own apps to disk, fresh on every start.
+func (cat *Catalog) unpackBuiltin() {
+	dest := cat.builtinDir()
+	_ = os.RemoveAll(dest)
+	_ = fs.WalkDir(builtinFS, "builtin", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		target := filepath.Join(dest, strings.TrimPrefix(p, "builtin"))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		b, err := builtinFS.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		return os.WriteFile(target, b, 0o644)
+	})
+}
+
+// Hook returns a script that belongs to one of ZeroOS's own apps ("setup",
+// "stop" or "remove"). It is read from inside the program, never from a
+// catalog that was downloaded.
+func (cat *Catalog) Hook(a *StoreApp, name string) []byte {
+	if a == nil || a.Catalog != "zeroos" {
+		return nil
+	}
+	b, err := builtinFS.ReadFile("builtin/" + a.ID + "/" + name + ".sh")
+	if err != nil {
+		return nil
+	}
+	return b
+}
 
 // Sync downloads the newest catalog. Safe to call while running.
 func (cat *Catalog) Sync() error {
@@ -225,18 +269,28 @@ type runtipiConfig struct {
 	Architectures []string    `json:"supported_architectures"`
 }
 
-// Load reads the catalog from disk.
+// Load reads the catalogs from disk: the downloaded one, then ZeroOS's own
+// apps, which win when both have the same app.
 func (cat *Catalog) Load() error {
-	entries, err := os.ReadDir(cat.runtipiDir())
-	if err != nil {
-		return nil // not synced yet
-	}
 	apps := map[string]*StoreApp{}
+	cat.loadDir(apps, cat.runtipiDir(), "runtipi")
+	cat.loadDir(apps, cat.builtinDir(), "zeroos")
+	cat.mu.Lock()
+	cat.apps = apps
+	cat.mu.Unlock()
+	return nil
+}
+
+func (cat *Catalog) loadDir(apps map[string]*StoreApp, root, catalog string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return // not there yet
+	}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		dir := filepath.Join(cat.runtipiDir(), e.Name())
+		dir := filepath.Join(root, e.Name())
 		b, err := os.ReadFile(filepath.Join(dir, "config.json"))
 		if err != nil {
 			continue
@@ -253,9 +307,11 @@ func (cat *Catalog) Load() error {
 			desc = string(md)
 		}
 		a := &StoreApp{
-			ID: rc.ID, Catalog: "runtipi", Name: rc.Name, ShortDesc: rc.ShortDesc, Description: desc,
+			ID: rc.ID, Catalog: catalog, Name: rc.Name, ShortDesc: rc.ShortDesc, Description: desc,
 			Categories: rc.Categories, Version: rc.Version, Website: rc.Website, Source: rc.Source,
-			NoGUI: rc.NoGUI, URLSuffix: rc.URLSuffix, Form: rc.FormFields, Verified: cat.verified[rc.ID], dir: dir,
+			NoGUI: rc.NoGUI, URLSuffix: rc.URLSuffix, Form: rc.FormFields, dir: dir,
+			// ZeroOS's own apps are made for it and tested with it.
+			Verified: cat.verified[rc.ID] || catalog == "zeroos",
 		}
 		if a.Form == nil {
 			a.Form = []FormField{}
@@ -271,10 +327,6 @@ func (cat *Catalog) Load() error {
 		}
 		apps[a.ID] = a
 	}
-	cat.mu.Lock()
-	cat.apps = apps
-	cat.mu.Unlock()
-	return nil
 }
 
 func (cat *Catalog) folderNeeds(id string, p *composePlan) []FolderNeed {
@@ -363,6 +415,18 @@ func (cat *Catalog) Count() int {
 	cat.mu.RLock()
 	defer cat.mu.RUnlock()
 	return len(cat.apps)
+}
+
+// Downloaded tells whether the big catalog has arrived (ZeroOS's own apps are always there).
+func (cat *Catalog) Downloaded() bool {
+	cat.mu.RLock()
+	defer cat.mu.RUnlock()
+	for _, a := range cat.apps {
+		if a.Catalog != "zeroos" {
+			return true
+		}
+	}
+	return false
 }
 
 func (cat *Catalog) Categories() []string {

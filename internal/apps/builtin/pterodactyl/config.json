@@ -1,0 +1,20 @@
+{
+  "id": "pterodactyl",
+  "name": "Pterodactyl",
+  "available": true,
+  "version": "1.15.2",
+  "categories": ["gaming"],
+  "short_desc": "Run and manage your own game servers",
+  "description": "Game server panel: Minecraft, Valheim, Garry's Mod and many more, each in its own container.",
+  "author": "Dane Everitt and contributors",
+  "source": "https://github.com/pterodactyl/panel",
+  "website": "https://pterodactyl.io",
+  "supported_architectures": ["amd64", "arm64"],
+  "form_fields": [
+    { "type": "text", "label": "Username for your Pterodactyl account", "required": true, "min": 1, "max": 60, "env_variable": "PTERO_USERNAME", "default": "admin" },
+    { "type": "email", "label": "Your email address", "hint": "Pterodactyl needs one for every account. No email is sent.", "required": true, "max": 120, "env_variable": "PTERO_EMAIL" },
+    { "type": "password", "label": "Password for your Pterodactyl account", "hint": "At least 8 characters.", "required": true, "min": 8, "max": 100, "env_variable": "PTERO_PASSWORD" },
+    { "type": "random", "label": "Database password", "min": 32, "env_variable": "PTERO_DB_PASSWORD" },
+    { "type": "random", "label": "Database root password", "min": 32, "env_variable": "PTERO_DB_ROOT_PASSWORD" }
+  ]
+}

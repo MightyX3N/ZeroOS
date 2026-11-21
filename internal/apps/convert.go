@@ -51,6 +51,7 @@ type rtService struct {
 	Pid             string            `json:"pid"`
 	Deploy          map[string]any    `json:"deploy"`
 	ExtraLabels     map[string]string `json:"extraLabels"`
+	ExtraHosts      []string          `json:"extraHosts"`
 }
 
 type rtVolume struct {
@@ -167,6 +168,11 @@ func (in buildInput) hostPath(hp string) string {
 	return out
 }
 
+// insidePath fills in the app's own folder in a path inside a container.
+func (in buildInput) insidePath(cp string) string {
+	return strings.ReplaceAll(cp, "${APP_DATA_DIR}", in.DataDir)
+}
+
 // dirsToCreate lists the app's own SSD folders, so they exist with the right owner.
 func (p *composePlan) dirsToCreate(in buildInput) []string {
 	var out []string
@@ -219,7 +225,9 @@ func (p *composePlan) buildFromJSON(in buildInput) map[string]any {
 		}
 		var vols []string
 		for _, v := range s.Volumes {
-			spec := in.hostPath(v.HostPath) + ":" + v.ContainerPath
+			// The path inside may name the app's folder too: a few apps (ones that
+			// start containers themselves) need it at the same place inside and out.
+			spec := in.hostPath(v.HostPath) + ":" + in.insidePath(v.ContainerPath)
 			if v.ReadOnly {
 				spec += ":ro"
 			}
@@ -298,6 +306,7 @@ func (p *composePlan) buildFromJSON(in buildInput) map[string]any {
 		set("stop_grace_period", s.StopGracePeriod, s.StopGracePeriod != "")
 		set("pid", s.Pid, s.Pid != "")
 		set("deploy", s.Deploy, len(s.Deploy) > 0)
+		set("extra_hosts", s.ExtraHosts, len(s.ExtraHosts) > 0)
 		devices := append([]string{}, s.Devices...)
 		if in.GPU && s.IsMain {
 			devices = append(devices, "/dev/dri:/dev/dri")

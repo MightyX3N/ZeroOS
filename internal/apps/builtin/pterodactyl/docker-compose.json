@@ -1,0 +1,78 @@
+{
+  "services": [
+    {
+      "name": "panel",
+      "image": "ghcr.io/pterodactyl/panel:v1.15.2",
+      "isMain": true,
+      "internalPort": 80,
+      "dependsOn": ["database", "cache"],
+      "extraHosts": ["${HOST_NAME}.local:host-gateway"],
+      "environment": {
+        "APP_URL": "http://${HOST_NAME}.local:${APP_PORT}",
+        "APP_TIMEZONE": "${TZ}",
+        "APP_SERVICE_AUTHOR": "${PTERO_EMAIL}",
+        "APP_ENV": "production",
+        "APP_ENVIRONMENT_ONLY": "false",
+        "CACHE_DRIVER": "redis",
+        "SESSION_DRIVER": "redis",
+        "QUEUE_DRIVER": "redis",
+        "REDIS_HOST": "cache",
+        "DB_HOST": "database",
+        "DB_PORT": "3306",
+        "DB_PASSWORD": "${PTERO_DB_PASSWORD}",
+        "HASHIDS_LENGTH": "8",
+        "RECAPTCHA_ENABLED": "false",
+        "MAIL_MAILER": "log",
+        "MAIL_DRIVER": "log",
+        "MAIL_FROM_ADDRESS": "${PTERO_EMAIL}",
+        "MAIL_FROM": "${PTERO_EMAIL}"
+      },
+      "volumes": [
+        { "hostPath": "${APP_DATA_DIR}/data/panel/var", "containerPath": "/app/var" },
+        { "hostPath": "${APP_DATA_DIR}/data/panel/nginx", "containerPath": "/etc/nginx/http.d" },
+        { "hostPath": "${APP_DATA_DIR}/data/panel/logs", "containerPath": "/app/storage/logs" }
+      ]
+    },
+    {
+      "name": "database",
+      "image": "mariadb:11",
+      "command": "--default-authentication-plugin=mysql_native_password",
+      "environment": {
+        "MYSQL_DATABASE": "panel",
+        "MYSQL_USER": "pterodactyl",
+        "MYSQL_PASSWORD": "${PTERO_DB_PASSWORD}",
+        "MYSQL_ROOT_PASSWORD": "${PTERO_DB_ROOT_PASSWORD}"
+      },
+      "volumes": [
+        { "hostPath": "${APP_DATA_DIR}/data/database", "containerPath": "/var/lib/mysql" }
+      ]
+    },
+    {
+      "name": "cache",
+      "image": "redis:alpine"
+    },
+    {
+      "name": "wings",
+      "image": "ghcr.io/pterodactyl/wings:v1.13.5",
+      "tty": true,
+      "environment": {
+        "TZ": "${TZ}",
+        "WINGS_UID": "988",
+        "WINGS_GID": "988",
+        "WINGS_USERNAME": "pterodactyl"
+      },
+      "addPorts": [
+        { "hostPort": 28080, "containerPort": 28080 },
+        { "hostPort": 2022, "containerPort": 2022 }
+      ],
+      "volumes": [
+        { "hostPath": "/var/run/docker.sock", "containerPath": "/var/run/docker.sock" },
+        { "hostPath": "/var/lib/docker/containers", "containerPath": "/var/lib/docker/containers" },
+        { "hostPath": "/etc/ssl/certs", "containerPath": "/etc/ssl/certs", "readOnly": true },
+        { "hostPath": "${APP_DATA_DIR}/data/wings/etc", "containerPath": "/etc/pterodactyl" },
+        { "hostPath": "${APP_DATA_DIR}/data/wings/logs", "containerPath": "/var/log/pterodactyl" },
+        { "hostPath": "${APP_DATA_DIR}/data/wings/servers", "containerPath": "${APP_DATA_DIR}/data/wings/servers" }
+      ]
+    }
+  ]
+}

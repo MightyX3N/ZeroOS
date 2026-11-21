@@ -6,6 +6,7 @@ It is not an operating system and not a NAS. It is one small program that runs o
 
 - **A desktop in the browser.** Apps are icons; they open in windows. On a phone it becomes a home screen.
 - **A store that fills itself.** Apps come from the [Runtipi app store](https://github.com/runtipi/runtipi-appstore) catalog and run unchanged. No ports, paths or YAML to fill in.
+- **Apps that need setting up are set up for you.** A few apps come with ZeroOS itself (`internal/apps/builtin`), in the same format plus a readable `setup.sh`. Pterodactyl is the first: after install it has your account, this computer as its node, ports for servers and a working Wings.
 - **Your NAS for big files.** Add an SMB share once, then pick folders with a folder picker. Each app's own data stays on the mini PC's SSD. If the NAS goes offline, apps that use it wait and start again by themselves.
 - **Share online.** Link a playit.gg account and flip a switch per app, or share any port (for game servers).
 - **Users and permissions.** Every action is a permission. Each person only sees the apps shared with them.
@@ -73,6 +74,7 @@ The web UI in `web/static` is plain HTML, CSS and JavaScript and is built into t
 ## Thanks
 
 - App catalog: [runtipi/runtipi-appstore](https://github.com/runtipi/runtipi-appstore) (GPL-3.0)
+- Pterodactyl: [panel](https://github.com/pterodactyl/panel) and [Wings](https://github.com/pterodactyl/wings) (MIT), run from their official images
 - Tunnels: playit.gg's official agent, [playit-cloud/playit-agent](https://github.com/playit-cloud/playit-agent) (BSD-2-Clause)
 
 ## Licence

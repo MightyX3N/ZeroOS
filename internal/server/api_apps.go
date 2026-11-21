@@ -115,7 +115,7 @@ func (s *Server) storeList(w http.ResponseWriter, r *http.Request) {
 	for _, a := range list {
 		items = append(items, item{a.ID, a.Name, a.ShortDesc, a.Verified, a.Categories, installed[a.ID]})
 	}
-	ok(w, map[string]any{"apps": items, "categories": s.Cat.Categories(), "total": s.Cat.Count(), "synced": s.C.Setting("store_synced")})
+	ok(w, map[string]any{"apps": items, "categories": s.Cat.Categories(), "total": s.Cat.Count(), "synced": s.C.Setting("store_synced"), "loading": !s.Cat.Downloaded()})
 }
 
 func (s *Server) storeApp(w http.ResponseWriter, r *http.Request) {

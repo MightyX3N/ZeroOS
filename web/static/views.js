@@ -16,9 +16,12 @@ function nasFlow(box, onAdded) {
   const f = $('[data-login]', box), found = $('[data-found]', box), sharesBox = $('[data-shares]', box), added = $('[data-added]', box);
   POST('/api/storage/discover').then((r) => {
     if (!r.found.length) { found.innerHTML = `<p class="muted">No NAS found automatically. Type its address below.</p>`; return; }
-    found.innerHTML = `<h3>Found on your network</h3>` + r.found.map((n) => `<button type="button" class="opt" data-host="${esc(n.host)}"><span class="grow"><strong>${esc(n.name)}</strong><br><span class="muted">${esc(n.host)}</span></span></button>`).join('');
+    const row = (n) => `<button type="button" class="opt" data-host="${esc(n.host)}"><span class="grow"><strong>${esc(n.name)}</strong><br><span class="muted">${esc(n.host)}</span></span></button>`;
+    const nas = r.found.filter((n) => n.nas), pcs = r.found.filter((n) => !n.nas);
+    found.innerHTML = (nas.length ? `<h3>Found on your network</h3>` + nas.map(row).join('') : `<p class="muted">No NAS found automatically. Type its address below.</p>`)
+      + (pcs.length ? `<details ${nas.length ? '' : 'open'}><summary class="muted" style="cursor:pointer">Other computers that share folders (${pcs.length})</summary><div class="col" style="margin-top:.5em">${pcs.map(row).join('')}</div></details>` : '');
     $$('[data-host]', found).forEach((b) => b.onclick = () => { $$('.opt', found).forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); f.host.value = b.dataset.host; f.user.focus(); });
-    if (r.found.length === 1) $('[data-host]', found).click();
+    if (nas.length === 1) $('[data-host]', found).click();
   }).catch(() => { found.innerHTML = ''; });
   f.onsubmit = async (e) => {
     e.preventDefault(); const note = $('.note', f); note.classList.add('hide');
@@ -90,7 +93,7 @@ function secureBox(o) { // o: { secure, premium, port, what, canSetUp }
         <li>As what to share, choose <strong>Website (HTTPS)</strong>.</li>
         <li>As the computer, choose <strong>ZeroOS</strong>.</li>
         <li>Fill in <strong>Http Port</strong> <code class="addr">${o.port}</code> <button class="btn sm" data-copy="${o.port}">Copy</button> and set <strong>TLS Termination</strong> to <strong>letsencrypt</strong>.</li>
-        <li>As the address, pick a name. Premium includes three names that end in .playit.plus.</li>
+        <li>As the address, pick a name. Premium includes three names that end in .playit.plus, and a name under one you already have (like jellyfin.yourname.playit.plus) doesn't use up another.</li>
       </ol>
       <div class="row"><button class="btn sm" data-seccheck>I've made it, check now</button><span class="muted" data-secmsg></span></div>
     </details></div>`;
@@ -140,14 +143,15 @@ function openStore(showApp) {
   const win = openWin({ key: 'store', title: 'Store', iconHTML: sysIcon(SVG.store, '#111827'), w: 1060, h: 700, render(body, w) {
     body.innerHTML = `<nav class="side" aria-label="Categories"></nav><div class="pane"></div>`;
     w.state = { q: '', cat: '', verified: false, installedOnly: false };
-    w.list = () => storeList(w); w.show = (id) => storeApp(w, id);
+    w.seq = 0; w.list = () => storeList(w, ++w.seq); w.show = (id) => { clearTimeout(w.qt); return storeApp(w, id, ++w.seq); }; // seq: a slow answer never draws over a newer page
     w.list();
   } });
   if (typeof showApp === 'string') win.show(showApp);
 }
-async function storeList(w) {
+async function storeList(w, seq) {
   const pane = $('.pane', w.body), side = $('.side', w.body), st = w.state;
-  let r; try { r = await GET(`/api/store?q=${encodeURIComponent(st.q)}&cat=${encodeURIComponent(st.cat)}${st.verified ? '&verified=1' : ''}`); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  let r; try { r = await GET(`/api/store?q=${encodeURIComponent(st.q)}&cat=${encodeURIComponent(st.cat)}${st.verified ? '&verified=1' : ''}`); } catch (e) { if (seq === w.seq) pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+  if (seq !== w.seq) return;
   side.innerHTML = `<button data-c="" class="${!st.cat && !st.installedOnly ? 'on' : ''}">All apps</button>${r.categories.map((c) => `<button data-c="${esc(c)}" class="${st.cat === c ? 'on' : ''}">${esc(catName(c))}</button>`).join('')}<hr><button data-inst class="${st.installedOnly ? 'on' : ''}">Installed</button>`;
   $$('[data-c]', side).forEach((b) => b.onclick = () => { st.cat = b.dataset.c; st.installedOnly = false; w.list(); });
   $('[data-inst]', side).onclick = () => { st.installedOnly = true; st.cat = ''; w.list(); };
@@ -155,10 +159,10 @@ async function storeList(w) {
   if (!$('[data-q]', pane)) {
     pane.innerHTML = `<div class="row"><div class="grow" style="position:relative;flex:1 1 18em"><input type="search" data-q placeholder="Search, for example photos, passwords or Minecraft" aria-label="Search the store" style="padding-left:2.4em"><span style="position:absolute;left:.8em;top:.85em;color:var(--mute)">${SVG.search}</span></div>
       <label class="check"><input type="checkbox" data-v>Verified only</label></div><p class="muted" data-info></p><div class="cards" data-cards></div>`;
-    let t; $('[data-q]', pane).oninput = (e) => { clearTimeout(t); t = setTimeout(() => { st.q = e.target.value; w.list(); }, 200); };
+    $('[data-q]', pane).oninput = (e) => { clearTimeout(w.qt); w.qt = setTimeout(() => { st.q = e.target.value; w.list(); }, 200); };
     $('[data-v]', pane).onchange = (e) => { st.verified = e.target.checked; w.list(); };
   }
-  $('[data-info]', pane).innerHTML = r.total ? `${apps.length} of ${r.total} apps. <span class="badge ok">✓ Verified</span> passed ZeroOS's install test. <span class="badge mute">Community</span> comes straight from the catalog.` : `The store is still loading its catalog. ${can('store.repos') ? '<button class="link" data-sync>Load it now</button>' : 'Try again in a moment.'}`;
+  $('[data-info]', pane).innerHTML = (r.loading ? `The store is still loading the rest of its catalog. ${can('store.repos') ? '<button class="link" data-sync>Load it now</button>' : 'Try again in a moment.'} ` : '') + (r.total ? `${apps.length} of ${r.total} apps. <span class="badge ok">✓ Verified</span> passed ZeroOS's install test. <span class="badge mute">Community</span> comes straight from the catalog.` : '');
   const sy = $('[data-sync]', pane); if (sy) sy.onclick = (e) => busy(e.currentTarget, async () => { await POST('/api/store/sync'); w.list(); });
   const cards = $('[data-cards]', pane); cards.innerHTML = '';
   if (r.total && !apps.length) cards.innerHTML = '<p class="muted">No apps match.</p>';
@@ -167,9 +171,10 @@ async function storeList(w) {
     c.onclick = () => w.show(a.id); cards.append(c);
   }
 }
-async function storeApp(w, id) {
+async function storeApp(w, id, seq) {
   const pane = $('.pane', w.body);
   let r; try { r = await GET('/api/store/' + encodeURIComponent(id)); } catch (e) { return oops(e); }
+  if (seq !== w.seq) return;
   const a = r.app, inst = S.apps.find((x) => x.storeId === id);
   const about = (a.description || '').split(/\n#+\s*Folder Info/i)[0].replace(/^#+\s*/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[*_`]{1,2}/g, '').trim();
   pane.innerHTML = `<div><button class="link" data-back>← Store</button></div>

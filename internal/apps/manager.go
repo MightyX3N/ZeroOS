@@ -310,8 +310,13 @@ func (m *Manager) runInstall(job *Job, id string) {
 	if err := m.compose(id, job, "pull", "--ignore-buildable"); err != nil {
 		// older compose versions don't know --ignore-buildable
 		if err2 := m.compose(id, job, "pull"); err2 != nil {
-			fail(errors.New("Couldn't download the app. Check that this computer is online."))
-			return
+			// Offline, or the download site says "too many downloads": carry on
+			// when every part of the app is on this computer already.
+			if !m.imagesPresent(id) {
+				fail(errors.New("Couldn't download the app. Check that this computer is online."))
+				return
+			}
+			job.log("Couldn't check for a newer download; using the copy already on this computer.")
 		}
 	}
 	job.step("Starting")
@@ -324,6 +329,13 @@ func (m *Manager) runInstall(job *Job, id string) {
 		job.step("Waiting for it to answer")
 		if !waitHTTP(a.LocalURL(), 4*time.Minute) {
 			job.log("It's still starting up; it will appear on the desktop when ready.")
+		}
+	}
+	if m.hasHook(id, "setup") {
+		job.step("Setting it up")
+		if err := m.hook(id, "setup", job); err != nil {
+			fail(errors.New("Setting the app up didn't finish. See the details below."))
+			return
 		}
 	}
 	m.setState(id, "running")
@@ -399,7 +411,7 @@ func (m *Manager) envFile(a *App, dataDir, shared string) string {
 		"ROOT_FOLDER_HOST": shared, "APP_DOMAIN": fmt.Sprintf("%s:%d", ip, a.Port), "LOCAL_DOMAIN": "local",
 		"APP_PROTOCOL": "http", "APP_EXPOSED": "false", "APP_HOST": ip, "INTERNAL_IP": ip,
 		"NETWORK_INTERFACE": defaultIface(), "TIPI_UID": "1000", "TIPI_GID": "1000", "UID": "1000", "GID": "1000",
-		"PUID": "1000", "PGID": "1000", "TIPI_VERSION": "4.5.0",
+		"PUID": "1000", "PGID": "1000", "TIPI_VERSION": "4.5.0", "HOST_NAME": hostName(),
 	}
 	for k, v := range a.Settings.Env {
 		vals[k] = v
@@ -415,6 +427,27 @@ func (m *Manager) envFile(a *App, dataDir, shared string) string {
 		fmt.Fprintf(&b, "%s='%s'\n", k, strings.ReplaceAll(vals[k], "'", ""))
 	}
 	return b.String()
+}
+
+// imagesPresent tells whether Docker already has every image the app uses.
+func (m *Manager) imagesPresent(id string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "compose", "-p", project(id), "--project-directory", m.appDir(id),
+		"-f", filepath.Join(m.appDir(id), "docker-compose.yml"), "config", "--images").Output()
+	if err != nil {
+		return false
+	}
+	images := strings.Fields(string(out))
+	if len(images) == 0 {
+		return false
+	}
+	for _, img := range images {
+		if exec.CommandContext(ctx, "docker", "image", "inspect", img).Run() != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // compose runs docker compose for one app, streaming output into the job.
@@ -520,6 +553,7 @@ func (m *Manager) Stop(id string) error {
 	if err := m.compose(id, nil, "stop"); err != nil {
 		return errors.New("Couldn't stop the app.")
 	}
+	_ = m.hook(id, "stop", nil)
 	m.setState(id, "stopped")
 	return nil
 }
@@ -579,6 +613,7 @@ func (m *Manager) Remove(id string, deleteData bool) error {
 		return err
 	}
 	m.setState(id, "removing")
+	_ = m.hook(id, "remove", nil)
 	args := []string{"down", "--remove-orphans"}
 	if deleteData {
 		args = append(args, "--volumes")
@@ -833,6 +868,67 @@ func hostTZ() string {
 		}
 	}
 	return "UTC"
+}
+
+// hostName is this computer's name on the home network, where it answers as <name>.local.
+func hostName() string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		return "localhost"
+	}
+	return strings.ToLower(strings.SplitN(h, ".", 2)[0])
+}
+
+// hook runs a script that comes with one of ZeroOS's own apps, with the app's
+// settings in its environment and its output in the install log.
+func (m *Manager) hook(id, name string, job *Job) error {
+	a, err := m.Get(id)
+	if err != nil {
+		return err
+	}
+	sa, _ := m.cat.Get(a.StoreID)
+	script := m.cat.Hook(sa, name)
+	if script == nil {
+		return nil
+	}
+	dir := m.appDir(id)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-s")
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(string(script))
+	cmd.Env = append(os.Environ(), "ZEROOS_APP_ID="+id, "ZEROOS_PROJECT="+project(id), "ZEROOS_APP_DIR="+dir,
+		"APP_DATA_DIR="+filepath.Join(dir, "data"), "APP_PORT="+strconv.Itoa(a.Port), "HOST_NAME="+hostName(), "HOST_IP="+hostIP(), "TZ="+hostTZ())
+	for k, v := range a.Settings.Env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+	pr, pw := io.Pipe()
+	cmd.Stdout, cmd.Stderr = pw, pw
+	done := make(chan struct{})
+	go func() {
+		sc := bufio.NewScanner(pr)
+		sc.Buffer(make([]byte, 64*1024), 1024*1024)
+		for sc.Scan() {
+			if line := strings.TrimSpace(sc.Text()); line != "" && job != nil {
+				job.log(line)
+			}
+		}
+		close(done)
+	}()
+	err = cmd.Run()
+	pw.Close()
+	<-done
+	return err
+}
+
+// hasHook tells whether an installed app comes with that script.
+func (m *Manager) hasHook(id, name string) bool {
+	a, err := m.Get(id)
+	if err != nil {
+		return false
+	}
+	sa, _ := m.cat.Get(a.StoreID)
+	return m.cat.Hook(sa, name) != nil
 }
 
 // hostIP is this computer's address on the home network.

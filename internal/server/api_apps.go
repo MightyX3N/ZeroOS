@@ -58,7 +58,7 @@ func (s *Server) sharedApps() map[string]bool {
 		out[id] = true
 	}
 	for _, a := range s.appList() {
-		if s.Playit.SecureFor(a.Port) != nil {
+		if s.Playit.SecureFor(a.PublicPort()) != nil {
 			out[a.ID] = true
 		}
 	}
@@ -74,6 +74,9 @@ func (s *Server) desktop(w http.ResponseWriter, r *http.Request) {
 		da := deskApp{ID: a.ID, StoreID: a.StoreID, Name: a.Name, State: a.State, Problem: a.Problem, Perms: s.Auth.AppPermsFor(u, a.ID), Shared: shared[a.ID], NoGUI: a.NoGUI}
 		if up := s.Apps.UpdateFor(a); up != nil && s.Auth.CanApp(u, a.ID, "app.update") {
 			da.Update = up.To
+			if up.Build {
+				da.Update = "newer build"
+			}
 		}
 		list = append(list, da)
 		switch a.State {
@@ -254,7 +257,7 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"app": a, "folders": folders, "tunnel": tunnel, "people": people,
 		"perms": s.Auth.AppPermsFor(u, a.ID), "gpuAvailable": dirExists("/dev/dri"), "playitLinked": s.Playit.Linked(),
-		"playitPremium": s.Playit.Premium(), "secure": s.secureInfo(a.Port), "port": a.Port,
+		"playitPremium": s.Playit.Premium(), "secure": s.secureInfo(a.PublicPort()), "port": a.PublicPort(), "sharingNote": a.SharingNote,
 		"version": a.Settings.Version, "update": s.Apps.UpdateFor(a), "undo": s.Apps.UndoFor(a), "undoDays": apps.UndoDays,
 	}
 	if inStore {
@@ -268,7 +271,7 @@ func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 	if !isHomeHost(r.Host) {
 		// Away from home the mini PC's own address doesn't work: use the app's shared address.
 		// A secure address made on playit.gg comes first.
-		if x := s.Playit.SecureFor(a.Port); x != nil && x.Problem == "" {
+		if x := s.Playit.SecureFor(a.PublicPort()); x != nil && x.Problem == "" {
 			ok(w, map[string]any{"url": x.URL() + a.URLSuffix, "frameable": false, "remote": true, "noGui": a.NoGUI})
 			return
 		}
@@ -512,4 +515,12 @@ func (s *Server) appDropUndo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, map[string]bool{"ok": true})
+}
+
+// appCheck asks right now whether a newer build of the app can be downloaded.
+func (s *Server) appCheck(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.Apps.CheckBuild(id)
+	a, _ := s.Apps.Get(id)
+	ok(w, map[string]any{"update": s.Apps.UpdateFor(a)})
 }

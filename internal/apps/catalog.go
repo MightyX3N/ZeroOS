@@ -74,6 +74,8 @@ type StoreApp struct {
 	Form        []FormField  `json:"form"`
 	Folders     []FolderNeed `json:"folders"`
 	UsesDocker  bool         `json:"usesDocker"`
+	SharePort   int          `json:"-"`
+	SharingNote string       `json:"-"`
 	dir         string
 }
 
@@ -267,6 +269,10 @@ type runtipiConfig struct {
 	URLSuffix     string      `json:"url_suffix"`
 	FormFields    []FormField `json:"form_fields"`
 	Architectures []string    `json:"supported_architectures"`
+	// ZeroOS's own additions, for its own apps:
+	SharePort   int                   `json:"share_port"`   // the port for visitors from outside, when the app has a separate one
+	SharingNote string                `json:"sharing_note"` // shown with the app's Share online switch
+	Folders     map[string]FolderNeed `json:"folders"`      // friendlier words for the folders it asks for
 }
 
 // Load reads the catalogs from disk: the downloaded one, then ZeroOS's own
@@ -321,6 +327,19 @@ func (cat *Catalog) loadDir(apps map[string]*StoreApp, root, catalog string) {
 			continue // a format we can't run yet
 		}
 		a.Folders = cat.folderNeeds(a.ID, plan)
+		for i, f := range a.Folders {
+			if w, ok := rc.Folders[f.Key]; ok {
+				if w.Label != "" {
+					a.Folders[i].Label = w.Label
+				}
+				if w.Hint != "" {
+					a.Folders[i].Hint = w.Hint
+				}
+			}
+		}
+		if catalog == "zeroos" {
+			a.SharePort, a.SharingNote = rc.SharePort, rc.SharingNote
+		}
 		a.UsesDocker = plan.usesDockerSocket()
 		if o, ok := cat.over[a.ID]; ok && o.Name != "" {
 			a.Name = o.Name

@@ -221,7 +221,7 @@ func (s *Server) tunnels(u *userView) []tunnelRow {
 		}
 	}
 	for _, a := range s.appList() {
-		x := s.Playit.SecureFor(a.Port)
+		x := s.Playit.SecureFor(a.PublicPort())
 		if x == nil || !s.Auth.CanApp(u.User, a.ID, "app.view") {
 			continue
 		}
@@ -328,13 +328,13 @@ func (s *Server) appShare(w http.ResponseWriter, r *http.Request) {
 	var pid string
 	exists := s.C.DB.QueryRow(`SELECT id,playit_id FROM tunnels WHERE kind='app' AND app_id=?`, id).Scan(&tid, &pid) == nil
 	if in.On && !exists {
-		pid, err := s.Playit.CreateTunnel("ZeroOS - "+a.Name, a.Port, "tcp")
+		pid, err := s.Playit.CreateTunnel("ZeroOS - "+a.Name, a.PublicPort(), "tcp")
 		s.log(r, "shared online", a.Name, id, err == nil, errText(err))
 		if err != nil {
 			failErr(w, err)
 			return
 		}
-		_, _ = s.C.DB.Exec(`INSERT INTO tunnels(kind,app_id,name,local_port,proto,playit_id,created_by,created) VALUES('app',?,?,?,?,?,?,?)`, id, a.Name, a.Port, "tcp", pid, u.ID, time.Now().Unix())
+		_, _ = s.C.DB.Exec(`INSERT INTO tunnels(kind,app_id,name,local_port,proto,playit_id,created_by,created) VALUES('app',?,?,?,?,?,?,?)`, id, a.Name, a.PublicPort(), "tcp", pid, u.ID, time.Now().Unix())
 		go s.chaseAddresses()
 	}
 	if !in.On && exists {

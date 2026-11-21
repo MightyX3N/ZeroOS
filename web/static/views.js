@@ -184,7 +184,7 @@ async function storeApp(w, id, seq) {
   const about = (a.description || '').split(/\n#+\s*Folder Info/i)[0].replace(/^#+\s*/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/[*_`]{1,2}/g, '').trim();
   pane.innerHTML = `<div><button class="link" data-back>← Store</button></div>
     <div class="between"><div class="row" style="flex-wrap:nowrap">${icon(a.id, a.name, '4.4em')}<div class="col" style="gap:.3em"><h1>${esc(a.name)}</h1><div class="row" style="gap:.4em"><span class="badge ${a.verified ? 'ok' : 'mute'}">${a.verified ? '✓ Verified' : 'Community'}</span>${a.categories.map((c) => `<span class="badge info">${esc(catName(c))}</span>`).join('')}</div></div></div>
-      <div class="row">${inst && inst.update && inst.perms.includes('app.update') ? `<button class="btn pri" data-upd>Update to ${esc(inst.update)}</button>` : ''}${inst ? `<button class="btn" data-open>Open</button>` : ''}${can('apps.install') ? `<button class="btn pri" data-get>${inst ? 'Get another copy' : 'Get'}</button>` : ''}</div></div>
+      <div class="row">${inst && inst.update && inst.perms.includes('app.update') ? `<button class="btn pri" data-upd>${inst.update === 'newer build' ? 'Update' : 'Update to ' + esc(inst.update)}</button>` : ''}${inst ? `<button class="btn" data-open>Open</button>` : ''}${can('apps.install') ? `<button class="btn pri" data-get>${inst ? 'Get another copy' : 'Get'}</button>` : ''}</div></div>
     <p style="font-size:1.05em">${esc(a.shortDesc)}</p>
     ${a.usesDocker ? '<div class="note warn">This app controls Docker on the whole mini PC (it needs that to do its job), so only the owner can install it.</div>' : ''}
     <div class="desc">${esc(about)}</div>
@@ -252,7 +252,8 @@ function installProgress(a, jobId, appId) {
 // a: an installed app from S.apps. to: the version in the store.
 function updateApp(id) {
   const a = S.apps.find((v) => v.id === id); if (!a || !a.update) return;
-  const d = dialog(`<div class="row" style="flex-wrap:nowrap">${icon(a.storeId, a.name, '3.2em')}<div class="col" style="gap:.2em"><h2>Update ${esc(a.name)} to ${esc(a.update)}?</h2><span class="muted">It stops for a moment while it updates.</span></div></div>
+  const build = a.update === 'newer build'; // same version, newer download
+  const d = dialog(`<div class="row" style="flex-wrap:nowrap">${icon(a.storeId, a.name, '3.2em')}<div class="col" style="gap:.2em"><h2>${build ? `Update ${esc(a.name)} to its newer build?` : `Update ${esc(a.name)} to ${esc(a.update)}?`}</h2><span class="muted">It stops for a moment while it updates.</span></div></div>
     <p>ZeroOS first keeps a copy of ${esc(a.name)} as it is now. If the new version doesn't start, the copy is put back by itself. Otherwise you can undo the update for a week.</p>
     <p class="muted">The copy holds the app's own data on this mini PC. Folders on your NAS aren't part of it.</p>
     <div class="note bad hide" role="alert"></div>
@@ -260,7 +261,7 @@ function updateApp(id) {
   const go = (noUndo) => busy($('[data-go]', d.el), async () => {
     const note = $('.note', d.el);
     try { const r = await POST(`/api/apps/${id}/update`, { noUndo }); d.close(); refresh();
-      jobProgress(a, r.job, id, { title: 'Updating ' + a.name, doing: 'updating', okText: `${a.name} is now on ${a.update}. You can undo this for a week in its settings.`, okToast: a.name + ' was updated.', failToast: a.name + " wasn't updated.", open: true });
+      jobProgress(a, r.job, id, { title: 'Updating ' + a.name, doing: 'updating', okText: `${a.name} is now on ${build ? 'the newer build' : a.update}. You can undo this for a week in its settings.`, okToast: a.name + ' was updated.', failToast: a.name + " wasn't updated.", open: true });
     } catch (e) {
       if (e.data && e.data.noSpace && !noUndo) {
         note.textContent = e.message + ' You can free up space first, or update without a way back.'; note.classList.remove('hide');
@@ -272,9 +273,10 @@ function updateApp(id) {
 }
 async function undoUpdate(id, undo) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
-  if (!await confirmDlg(`Go back to ${a.name} ${undo.version}?`, `${a.name} goes back to exactly how it was before the update on ${fmtTime(undo.at)}. Anything you did in ${a.name} since then is lost. Folders on your NAS are not changed.`, 'Go back', true)) return;
+  const was = undo.build ? 'the previous build' : undo.version;
+  if (!await confirmDlg(undo.build ? `Go back to the previous build of ${a.name}?` : `Go back to ${a.name} ${undo.version}?`, `${a.name} goes back to exactly how it was before the update on ${fmtTime(undo.at)}. Anything you did in ${a.name} since then is lost. Folders on your NAS are not changed.`, 'Go back', true)) return;
   try { const r = await POST(`/api/apps/${id}/undo`); refresh();
-    jobProgress(a, r.job, id, { title: 'Putting ' + a.name + ' ' + undo.version + ' back', doing: 'going back', okText: `${a.name} is back on ${undo.version}, as it was.`, okToast: a.name + ' is back on ' + undo.version + '.', failToast: a.name + " couldn't go back.", open: true });
+    jobProgress(a, r.job, id, { title: undo.build ? 'Putting the previous build of ' + a.name + ' back' : 'Putting ' + a.name + ' ' + undo.version + ' back', doing: 'going back', okText: `${a.name} is back on ${was}, as it was.`, okToast: a.name + ' is back on ' + was + '.', failToast: a.name + " couldn't go back.", open: true });
   } catch (e) { oops(e); }
 }
 
@@ -308,8 +310,8 @@ async function appSettingsDraw(w, id) {
         <div class="row">${has('app.open') && !a.noGui && running ? `<button class="btn" data-tab>Open in a new tab</button><button class="btn pri" data-open>Open</button>` : ''}</div></div>
       ${a.problem ? `<div class="note warn">${esc(a.problem)}</div>` : ''}
       ${a.noGui ? '<div class="note info">This app has no page of its own to open. It works in the background.</div>' : ''}
-      ${d.update && a.state !== 'updating' ? `<div class="box" style="border-color:var(--accent)"><div class="between"><div class="col" style="gap:.1em"><h3>Update available</h3><span>Version ${esc(d.update.to)} is in the Store. ${esc(a.name)} is on ${esc(d.update.from || 'an older version')}.</span></div>${has('app.update') ? '<button class="btn pri" data-update>Update</button>' : ''}</div><span class="muted">ZeroOS keeps a copy first, so an update can be undone for a week.</span></div>` : ''}
-      ${d.undo && a.state !== 'updating' ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>Updated ${fmtTime(d.undo.at)}</h3><span>You can go back to version ${esc(d.undo.version)}, exactly as it was, until ${fmtTime(d.undo.at + d.undoDays * 86400)}.</span></div>${has('app.update') ? '<div class="row"><button class="btn sm" data-undo>Undo the update</button><button class="btn sm" data-keepver>Keep this version</button></div>' : ''}</div><span class="muted">The copy takes ${fmtBytes(d.undo.size)}. "Keep this version" deletes it now.</span></div>` : ''}
+      ${d.update && a.state !== 'updating' ? `<div class="box" style="border-color:var(--accent)"><div class="between"><div class="col" style="gap:.1em"><h3>Update available</h3><span>${d.update.build ? `A newer build of ${esc(a.name)} can be downloaded.` : `Version ${esc(d.update.to)} is in the Store. ${esc(a.name)} is on ${esc(d.update.from || 'an older version')}.`}</span></div>${has('app.update') ? '<button class="btn pri" data-update>Update</button>' : ''}</div><span class="muted">ZeroOS keeps a copy first, so an update can be undone for a week.</span></div>` : ''}
+      ${d.undo && a.state !== 'updating' ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>Updated ${fmtTime(d.undo.at)}</h3><span>You can go back to ${d.undo.build ? 'the previous build' : 'version ' + esc(d.undo.version)}, exactly as it was, until ${fmtTime(d.undo.at + d.undoDays * 86400)}.</span></div>${has('app.update') ? '<div class="row"><button class="btn sm" data-undo>Undo the update</button><button class="btn sm" data-keepver>Keep this version</button></div>' : ''}</div><span class="muted">The copy takes ${fmtBytes(d.undo.size)}. "Keep this version" deletes it now.</span></div>` : ''}
       <div class="cards">
         ${d.folders.length ? `<div class="box"><div class="between"><h3>Folders</h3>${has('app.settings') ? '<button class="link" data-go="folders">Change</button>' : ''}</div>${d.folders.map((f) => `<span>${esc(f.label)}: <strong>${esc(f.rootLabel)}${f.path && f.path !== '/' ? esc(f.path.replace(/\//g, ' / ')) : ''}</strong>${f.connected ? '' : ' <span class="badge warn">Not connected</span>'}</span>`).join('')}<span class="muted">Its own data stays on this mini PC's SSD.</span></div>` : ''}
         ${has('app.share') && !a.noGui ? `<div class="box"><div class="between"><h3>Share online</h3><button class="link" data-go="sharing">${d.tunnel || d.secure ? 'Manage' : 'Set up'}</button></div>${d.secure ? `<code class="addr">${esc(d.secure.address)}</code>` : ''}${d.tunnel ? (d.tunnel.address ? `<code class="addr">${esc(d.tunnel.address)}</code>` : '<span class="muted">Getting its address…</span>') : (d.secure ? '' : '<span class="muted">Only reachable at home.</span>')}</div>` : ''}
@@ -317,14 +319,16 @@ async function appSettingsDraw(w, id) {
         ${d.gpuAvailable && has('app.settings') ? `<div class="box"><div class="between"><h3>Graphics chip</h3><input type="checkbox" class="switch" data-gpu ${a.settings.gpu ? 'checked' : ''} aria-label="Let this app use the graphics chip"></div><span class="muted">Lets the app use this mini PC's graphics chip, for faster video.</span></div>` : ''}
       </div>
       <div class="row">${has('app.power') ? (running ? `<button class="btn" data-act="restart">Restart</button><button class="btn" data-act="stop">Stop</button>` : a.state !== 'installing' ? `<button class="btn pri" data-act="start">Start</button>` : '') : ''}${has('app.remove') ? `<button class="btn danger" data-rm>Remove</button>` : ''}</div>
+      ${has('app.update') && !d.update && a.state !== 'updating' && a.state !== 'installing' ? `<p class="muted"><button class="link" data-check>Check for a newer build</button></p>` : ''}
       ${d.store ? `<p class="muted">${d.version ? 'Version ' + esc(d.version) + ' · ' : ''}From the Store${d.store.verified ? ' · Verified' : ' · Community'}${d.store.website ? ` · <a href="${esc(d.store.website)}" target="_blank" rel="noopener noreferrer">Website</a>` : ''}</p>` : ''}`;
     const o = $('[data-open]', pane); if (o) { o.onclick = () => openApp(id); $('[data-tab]', pane).onclick = () => openApp(id, true); }
     $$('[data-go]', pane).forEach((b) => b.onclick = () => w.go(b.dataset.go));
     $$('[data-act]', pane).forEach((b) => b.onclick = () => busy(b, async () => { await POST(`/api/apps/${id}/${b.dataset.act}`); redraw(); }));
     const rm = $('[data-rm]', pane); if (rm) rm.onclick = () => removeApp(id);
     const ub = $('[data-update]', pane); if (ub) ub.onclick = () => updateApp(id);
+    const ck = $('[data-check]', pane); if (ck) ck.onclick = () => busy(ck, async () => { const r = await POST(`/api/apps/${id}/check`); if (r.update) redraw(); else toast(a.name + ' is up to date.'); });
     const un = $('[data-undo]', pane); if (un) un.onclick = () => undoUpdate(id, d.undo);
-    const kv = $('[data-keepver]', pane); if (kv) kv.onclick = async () => { if (await confirmDlg('Keep this version?', `The copy for going back to ${d.undo.version} is deleted now, which frees ${fmtBytes(d.undo.size)}. The update can't be undone after that.`, 'Delete the copy', true)) busy(kv, async () => { await DEL(`/api/apps/${id}/undo`); redraw(); }); };
+    const kv = $('[data-keepver]', pane); if (kv) kv.onclick = async () => { if (await confirmDlg('Keep this version?', `The copy for going back to ${d.undo.build ? 'the previous build' : d.undo.version} is deleted now, which frees ${fmtBytes(d.undo.size)}. The update can't be undone after that.`, 'Delete the copy', true)) busy(kv, async () => { await DEL(`/api/apps/${id}/undo`); redraw(); }); };
     const g = $('[data-gpu]', pane); if (g) g.onchange = async () => { try { await PUT(`/api/apps/${id}/gpu`, { on: g.checked }); toast('Saved. The app restarts to use it.'); } catch (e) { g.checked = !g.checked; oops(e); } };
   } else if (w.tab === 'folders') {
     pane.innerHTML = `<h1>Folders</h1><p class="muted">Big files live in the folders below. ${esc(a.name)}'s own data always stays on this mini PC's SSD.</p>${d.folders.length ? '' : `<p>${esc(a.name)} doesn't use any big-file folders.</p>`}
@@ -336,6 +340,7 @@ async function appSettingsDraw(w, id) {
       ${!d.playitLinked ? `<div class="note info">Link a playit account first.</div><div><button class="btn pri" data-pl>Set up sharing</button></div>` : `
       <div class="box"><div class="between"><strong>Share ${esc(a.name)} online</strong><input type="checkbox" class="switch" data-sw ${d.tunnel ? 'checked' : ''} aria-label="Share ${esc(a.name)} online"></div>
       ${d.tunnel ? (d.tunnel.address ? `<div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(d.tunnel.address)}</code><button class="btn sm" data-copy1>Copy</button></div><span class="muted">Anyone with this address reaches ${esc(a.name)}'s own sign-in page. Use a strong password there.</span>` : '<div class="row"><span class="spinner dark"></span><span class="muted">Getting its address from playit…</span></div>') : '<span class="muted">Off: only reachable at home.</span>'}</div>`}`;
+    if (d.sharingNote) pane.insertAdjacentHTML('beforeend', `<div class="note info">${esc(d.sharingNote)}</div>`);
     if (d.playitLinked) { pane.insertAdjacentHTML('beforeend', secureBox({ secure: d.secure, premium: d.playitPremium, port: d.port, what: 'each app', canSetUp: true })); secureWire(pane, redraw, async () => !!(await GET(`/api/apps/${id}`)).secure); }
     const pl = $('[data-pl]', pane); if (pl) pl.onclick = () => openSettings('sharing');
     const sw = $('[data-sw]', pane); if (sw) sw.onchange = async () => { sw.disabled = true; try { await PUT(`/api/apps/${id}/share`, { on: sw.checked }); } catch (e) { oops(e); } redraw(); };

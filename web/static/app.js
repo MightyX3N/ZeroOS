@@ -371,7 +371,7 @@ function appMenu(id, x, y) {
     '-',
     has('app.share') && { label: 'Share online', right: a.shared ? 'On' : 'Off', run: () => openAppSettings(id, 'sharing') },
     { label: 'Settings', run: () => openAppSettings(id) },
-    a.update && has('app.update') && { label: 'Update to ' + a.update, run: () => updateApp(id) },
+    a.update && has('app.update') && { label: a.update === 'newer build' ? 'Update (newer build)' : 'Update to ' + a.update, run: () => updateApp(id) },
     has('app.power') && '-',
     has('app.power') && running && { label: 'Restart', run: () => appAction(id, 'restart', 'Restarting ' + a.name + '…') },
     has('app.power') && running && { label: 'Stop', run: () => appAction(id, 'stop', 'Stopping ' + a.name + '…') },

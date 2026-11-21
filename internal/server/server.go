@@ -202,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/apps/{id}/gpu", s.needApp("app.settings", s.appGPU))
 	mux.HandleFunc("PUT /api/apps/{id}/share", s.needApp("app.share", s.appShare))
 	mux.HandleFunc("POST /api/apps/{id}/update", s.needApp("app.update", s.appUpdate))
+	mux.HandleFunc("POST /api/apps/{id}/check", s.needApp("app.update", s.appCheck))
 	mux.HandleFunc("POST /api/apps/{id}/undo", s.needApp("app.update", s.appUndo))
 	mux.HandleFunc("DELETE /api/apps/{id}/undo", s.needApp("app.update", s.appDropUndo))
 	mux.HandleFunc("GET /api/apps/{id}/access", s.needApp("app.access", s.appAccess))
@@ -354,6 +355,9 @@ func (s *Server) background(ctx context.Context) {
 			}
 			if n%(4*60) == 0 {
 				s.Apps.ExpireUndo()
+			}
+			if n == 8 || n%(4*60*24) == 0 {
+				go s.Apps.CheckBuilds() // two minutes after starting, then daily
 			}
 			if n%(4*60*24) == 0 {
 				_ = s.Cat.Sync()

@@ -38,6 +38,17 @@ type App struct {
 	Created     int64             `json:"created"`
 	NoGUI       bool              `json:"noGui"`
 	URLSuffix   string            `json:"-"`
+	SharePort   int               `json:"-"` // the port for visitors from outside, when it differs from Port
+	SharingNote string            `json:"-"`
+}
+
+// PublicPort is the port people from outside should reach. A few apps have a
+// separate one, where visitors have to sign in first.
+func (a *App) PublicPort() int {
+	if a.SharePort > 0 {
+		return a.SharePort
+	}
+	return a.Port
 }
 
 // AppSettings are the answers given at install time plus ZeroOS options.
@@ -64,10 +75,11 @@ type Manager struct {
 	jobs  map[string]*Job
 	frame map[string]bool
 	busy  map[string]bool
+	newer map[string]bool // apps whose images have a newer build to download
 }
 
 func NewManager(c *core.Core, cat *Catalog, st *storage.Storage) *Manager {
-	return &Manager{c: c, cat: cat, st: st, jobs: map[string]*Job{}, frame: map[string]bool{}, busy: map[string]bool{}}
+	return &Manager{c: c, cat: cat, st: st, jobs: map[string]*Job{}, frame: map[string]bool{}, busy: map[string]bool{}, newer: map[string]bool{}}
 }
 
 func (m *Manager) appDir(id string) string { return filepath.Join(m.c.Cfg.AppsDir(), id) }
@@ -129,6 +141,7 @@ func (m *Manager) scan(row interface{ Scan(...any) error }) (*App, error) {
 	}
 	if sa, ok := m.cat.Get(a.StoreID); ok {
 		a.NoGUI, a.URLSuffix = sa.NoGUI, sa.URLSuffix
+		a.SharePort, a.SharingNote = sa.SharePort, sa.SharingNote
 	}
 	return a, nil
 }
@@ -326,7 +339,13 @@ func (m *Manager) runInstall(job *Job, id string) {
 	}
 	job.step("Starting")
 	if err := m.compose(id, job, "up", "-d", "--remove-orphans"); err != nil {
-		fail(errors.New("The app didn't start. See the details below."))
+		why := "The app didn't start. See the details below."
+		if a, _ := m.Get(id); a != nil {
+			if p := startProblem(a.Name, job.Lines); !strings.HasPrefix(p, "The app didn't start") {
+				why = p
+			}
+		}
+		fail(errors.New(why))
 		return
 	}
 	a, _ := m.Get(id)
@@ -540,11 +559,31 @@ func (m *Manager) Start(id string) error {
 	if err := m.writeCompose(id, false); err != nil {
 		return err
 	}
-	if err := m.compose(id, nil, "up", "-d", "--remove-orphans"); err != nil {
-		return errors.New("The app didn't start. Check its log.")
+	out := &Job{}
+	if err := m.compose(id, out, "up", "-d", "--remove-orphans"); err != nil {
+		return errors.New(startProblem(a.Name, out.Lines))
 	}
 	m.setState(id, "running")
 	return nil
+}
+
+var portInUse = regexp.MustCompile(`(?i)(?:bind for|host port for|listen \w+) [^ ]*?:(\d+)[^\n]*(?:already allocated|already in use)|(?:already allocated|already in use)[^\n]*?:(\d+)`)
+
+// startProblem turns Docker's words for a failed start into something a
+// person can act on. Two apps wanting the same port is the common one.
+func startProblem(name string, lines []string) string {
+	text := strings.Join(lines, "\n")
+	if m := portInUse.FindStringSubmatch(text); m != nil {
+		port := m[1]
+		if port == "" {
+			port = m[2]
+		}
+		return fmt.Sprintf("%s couldn't start: port %s is already used by another app on this mini PC. Stop that app, start %s, then start the other one again.", name, port, name)
+	}
+	if strings.Contains(strings.ToLower(text), "already in use") || strings.Contains(strings.ToLower(text), "already allocated") {
+		return name + " couldn't start: a port it needs is already used by another app on this mini PC."
+	}
+	return "The app didn't start. Check its log."
 }
 
 func (m *Manager) Stop(id string) error {
@@ -632,6 +671,7 @@ func (m *Manager) Remove(id string, deleteData bool) error {
 			return errors.New("Couldn't remove the app's containers.")
 		}
 	}
+	m.dropKeptImages(id)
 	if deleteData {
 		_ = os.RemoveAll(m.appDir(id))
 	}

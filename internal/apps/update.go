@@ -36,12 +36,14 @@ type UndoPoint struct {
 	Version string `json:"version"` // the version it goes back to
 	At      int64  `json:"at"`      // when the update was made
 	Size    int64  `json:"size"`    // bytes the copy takes
+	Build   bool   `json:"build"`   // the update was a newer build of the same version
 }
 
 // UpdateInfo says which newer version the store has for an installed app.
 type UpdateInfo struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Build bool   `json:"build"` // same version, but a newer build of it can be downloaded
 }
 
 var recipeFiles = []string{"config.json", "docker-compose.json", "docker-compose.yml"}
@@ -119,15 +121,24 @@ func (m *Manager) ensureRecipe(a *App) error {
 
 // UpdateFor says whether the store has a newer version of an installed app.
 func (m *Manager) UpdateFor(a *App) *UpdateInfo {
-	sa, ok := m.cat.Get(a.StoreID)
-	if !ok {
-		return nil
-	}
 	dir := m.recipeDir(a.ID)
 	if _, err := os.Stat(filepath.Join(dir, "config.json")); err != nil {
 		return nil // not pinned yet; it is on first start
 	}
+	sa, ok := m.cat.Get(a.StoreID)
+	if !ok {
+		// gone from the store: only a newer build of what it runs can come
+		if m.newerBuild(a.ID) {
+			v := recipeVersion(dir)
+			return &UpdateInfo{From: v, To: v, Build: true}
+		}
+		return nil
+	}
 	if sameRecipe(dir, sa.dir) {
+		if m.newerBuild(a.ID) {
+			v := recipeVersion(dir)
+			return &UpdateInfo{From: v, To: v, Build: true}
+		}
 		return nil
 	}
 	from, to := recipeVersion(dir), sa.Version
@@ -257,11 +268,12 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 		job.finish(err)
 		return
 	}
-	sa, ok := m.cat.Get(a.StoreID)
-	if !ok {
-		job.finish(errors.New("This app is no longer in the store catalog."))
+	up := m.UpdateFor(a)
+	if up == nil {
+		job.finish(errors.New("This app is already on the newest version."))
 		return
 	}
+	sa, _ := m.cat.Get(a.StoreID)
 	wasState, old := a.State, a.Settings.Version
 	dataDir, recipe, undo := filepath.Join(m.appDir(id), "data"), m.recipeDir(id), m.undoDir(id)
 	m.setState(id, "updating")
@@ -290,13 +302,17 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 			job.finish(errors.New("Couldn't keep a copy to go back to, so the app was not updated."))
 			return
 		}
-		a.Settings.Undo = &UndoPoint{Version: old, At: time.Now().Unix(), Size: dirSize(filepath.Join(undo, "data"))}
+		// the images it runs now keep a name of their own, so the download can't push them out
+		m.keepImages(id)
+		a.Settings.Undo = &UndoPoint{Version: old, At: time.Now().Unix(), Size: dirSize(filepath.Join(undo, "data")), Build: up.Build}
 	}
 
-	if err := copyRecipe(sa.dir, recipe); err != nil {
-		m.putBack(id, job, a, wasState, noUndo)
-		job.finish(errors.New("Couldn't read the new version from the store, so the app was not updated."))
-		return
+	if !up.Build {
+		if err := copyRecipe(sa.dir, recipe); err != nil {
+			_ = m.putBack(id, job, a, wasState, noUndo)
+			job.finish(errors.New("Couldn't read the new version from the store, so the app was not updated."))
+			return
+		}
 	}
 	a.Settings.Version = recipeVersion(recipe)
 	m.saveSettings(a)
@@ -316,7 +332,11 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 			return
 		}
 		m.c.Log("system", "update failed, previous version put back", a.Name, id, false, why)
-		job.finish(errors.New(why + " The previous version (" + old + ") was put back, with everything as it was."))
+		what := "The previous version (" + old + ")"
+		if up.Build {
+			what = "The previous build"
+		}
+		job.finish(errors.New(why + " " + what + " was put back, with everything as it was."))
 	}
 
 	if err := m.writeCompose(id, false); err != nil {
@@ -349,8 +369,13 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 	}
 	m.mu.Lock()
 	delete(m.frame, id)
+	m.newer[id] = false
 	m.mu.Unlock()
-	m.c.Log("system", "updated", fmt.Sprintf("%s (%s to %s)", a.Name, old, a.Settings.Version), id, true, "")
+	detail := fmt.Sprintf("%s (%s to %s)", a.Name, old, a.Settings.Version)
+	if up.Build {
+		detail = a.Name + " (a newer build)"
+	}
+	m.c.Log("system", "updated", detail, id, true, "")
 	job.step("Done")
 	job.finish(nil)
 }
@@ -447,7 +472,9 @@ func (m *Manager) putBack(id string, job *Job, a *App, wasState string, noUndo b
 		if err := copyRecipe(filepath.Join(undo, "recipe"), recipe); err != nil {
 			return err
 		}
+		m.restoreImages(id)
 	}
+	m.dropKeptImages(id)
 	_ = os.RemoveAll(undo)
 	a.Settings.Undo = nil
 	a.Settings.Version = recipeVersion(recipe)
@@ -492,6 +519,9 @@ func (m *Manager) Undo(id string) (*Job, error) {
 			job.finish(errors.New("Going back didn't work: " + err.Error()))
 			return
 		}
+		m.mu.Lock()
+		m.newer[id] = false // asked again at the next check
+		m.mu.Unlock()
 		m.c.Log("system", "update undone", fmt.Sprintf("%s (%s back to %s)", a.Name, from, to), id, true, "")
 		job.step("Done")
 		job.finish(nil)
@@ -509,6 +539,7 @@ func (m *Manager) DropUndo(id string) error {
 		return ErrBusy
 	}
 	defer m.unlock(id)
+	m.dropKeptImages(id)
 	_ = os.RemoveAll(m.undoDir(id))
 	a.Settings.Undo = nil
 	m.saveSettings(a)

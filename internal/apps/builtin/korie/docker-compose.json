@@ -1,0 +1,20 @@
+{
+  "services": [
+    {
+      "name": "korie",
+      "image": "ghcr.io/mightyx3n/korie:latest",
+      "isMain": true,
+      "internalPort": 8100,
+      "networkMode": "host",
+      "environment": {
+        "TZ": "${TZ}",
+        "KORIE_PORT": "${APP_PORT}",
+        "KORIE_OUTSIDE_PORT": "8101"
+      },
+      "volumes": [
+        { "hostPath": "${APP_DATA_DIR}/data", "containerPath": "/data" },
+        { "hostPath": "${ROOT_FOLDER_HOST}/media", "containerPath": "/media", "readOnly": true }
+      ]
+    }
+  ]
+}

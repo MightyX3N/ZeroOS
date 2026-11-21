@@ -56,3 +56,36 @@ func TestBuiltinPterodactyl(t *testing.T) {
 		}
 	}
 }
+
+func TestBuiltinKorie(t *testing.T) {
+	c, err := core.Open(core.Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat := NewCatalog(c)
+	a, ok := cat.Get("korie")
+	if !ok || a.Catalog != "zeroos" || !a.Verified {
+		t.Fatalf("Korie isn't in the store as a verified app: %+v", a)
+	}
+	if a.SharePort != 8101 || a.SharingNote == "" {
+		t.Errorf("visitors from outside must go to Korie's outside port: %d", a.SharePort)
+	}
+	if len(a.Folders) != 1 || !strings.Contains(a.Folders[0].Label, "films") {
+		t.Errorf("folders = %+v", a.Folders)
+	}
+	plan, err := loadCompose(a.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yml, _ := plan.Build(buildInput{AppID: "korie", DataDir: "/data/apps/korie/data", Port: 20004,
+		Folders: map[string]string{"${ROOT_FOLDER_HOST}/media": "/mnt/zeroos/Media"}, UsesNAS: true})
+	out := string(yml)
+	for _, want := range []string{"network_mode: host", "KORIE_PORT", "/mnt/zeroos/Media:/media:ro", "/data/apps/korie/data/data:/data"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("compose file lacks %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ports:") {
+		t.Errorf("an app on the computer's own network publishes no ports\n%s", out)
+	}
+}

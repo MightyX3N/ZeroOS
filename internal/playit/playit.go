@@ -528,6 +528,13 @@ func (p *Playit) DeleteTunnel(id string) error {
 
 // Addresses returns the public address of each tunnel on the account.
 func (p *Playit) Addresses() (map[string]string, error) {
+	_, addrs, err := p.Tunnels()
+	return addrs, err
+}
+
+// Tunnels lists the tunnels on the account: which exist, and the public
+// address of each that has one already.
+func (p *Playit) Tunnels() (exist map[string]bool, addrs map[string]string, err error) {
 	var res struct {
 		Tunnels []struct {
 			ID       string `json:"id"`
@@ -540,10 +547,11 @@ func (p *Playit) Addresses() (map[string]string, error) {
 		} `json:"tunnels"`
 	}
 	if err := p.call("/v1/tunnels/list", map[string]any{}, p.secret(), &res); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := map[string]string{}
+	out, exist := map[string]string{}, map[string]bool{}
 	for _, t := range res.Tunnels {
+		exist[t.ID] = true
 		// a name with a port ("x.gl.joinmc.link:1234") is the one to hand out;
 		// "ip4"/"ip6" entries carry no port.
 		best := 99
@@ -554,5 +562,5 @@ func (p *Playit) Addresses() (map[string]string, error) {
 			}
 		}
 	}
-	return out, nil
+	return exist, out, nil
 }

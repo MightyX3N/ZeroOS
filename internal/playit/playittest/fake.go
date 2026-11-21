@@ -112,6 +112,16 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(f.Tunnels)
 		return
 	}
+	if path == "/_delete" { // for tests: a person deletes a tunnel on playit.gg
+		for i, t := range f.Tunnels {
+			if t.ID == r.URL.Query().Get("id") {
+				f.Tunnels = append(f.Tunnels[:i], f.Tunnels[i+1:]...)
+				return
+			}
+		}
+		w.WriteHeader(404)
+		return
+	}
 	if path == "/_account" { // for tests: what a person did on playit.gg
 		var in struct {
 			Premium bool    `json:"premium"`

@@ -35,6 +35,10 @@ type Server struct {
 	Web     fs.FS
 	sys     *sysStats
 	tickets sync.Map // setup tickets after the setup code was entered
+
+	goneMu   sync.Mutex
+	gone     map[string]int // tunnels playit no longer lists: how often in a row
+	goneSeen time.Time
 }
 
 const cookieName = "zeroos_session"

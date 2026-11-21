@@ -404,13 +404,59 @@ func (s *Server) refreshTunnelAddresses() {
 	if !s.Playit.Linked() {
 		return
 	}
-	addrs, err := s.Playit.Addresses()
+	exist, addrs, err := s.Playit.Tunnels()
 	if err != nil {
 		return
 	}
 	for pid, addr := range addrs {
 		_, _ = s.C.DB.Exec(`UPDATE tunnels SET address=? WHERE playit_id=? AND address<>?`, addr, pid, addr)
 	}
+	s.dropDeletedTunnels(exist)
+}
+
+// dropDeletedTunnels forgets tunnels that someone deleted on playit.gg itself,
+// so ZeroOS doesn't keep showing an address that no longer works. To be sure,
+// a tunnel has to be a few minutes old and missing three checks in a row.
+func (s *Server) dropDeletedTunnels(exist map[string]bool) {
+	s.goneMu.Lock()
+	defer s.goneMu.Unlock()
+	if time.Since(s.goneSeen) < 20*time.Second {
+		return
+	}
+	s.goneSeen = time.Now()
+	type row struct {
+		id          int64
+		pid, name   string
+		appID, kind string
+	}
+	var list []row
+	rows, err := s.C.DB.Query(`SELECT id,playit_id,name,COALESCE(app_id,''),kind FROM tunnels WHERE playit_id<>'' AND created<?`, time.Now().Add(-2*time.Minute).Unix())
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		var r row
+		_ = rows.Scan(&r.id, &r.pid, &r.name, &r.appID, &r.kind)
+		list = append(list, r)
+	}
+	rows.Close()
+	next := map[string]int{}
+	for _, r := range list {
+		if exist[r.pid] {
+			continue
+		}
+		if next[r.pid] = s.gone[r.pid] + 1; next[r.pid] < 3 {
+			continue
+		}
+		delete(next, r.pid)
+		_, _ = s.C.DB.Exec(`DELETE FROM tunnels WHERE id=?`, r.id)
+		what := "stopped sharing online (the tunnel was deleted on playit.gg)"
+		if r.kind == "zeroos" {
+			what = "turned off reaching ZeroOS from outside (the tunnel was deleted on playit.gg)"
+		}
+		s.C.Log("system", what, r.name, r.appID, true, "")
+	}
+	s.gone = next
 }
 
 // chaseAddresses asks playit for the address of new tunnels until each has

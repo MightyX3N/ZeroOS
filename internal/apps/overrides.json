@@ -1,0 +1,10 @@
+{
+  "jellyfin": {
+    "folders": {
+      "${ROOT_FOLDER_HOST}/media/data": {
+        "label": "Where are your films and series?",
+        "hint": "Pick the folder on your NAS. Jellyfin sees it as its library."
+      }
+    }
+  }
+}

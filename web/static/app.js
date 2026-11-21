@@ -46,6 +46,10 @@ const SVG = {
   min: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>',
   max: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
   x: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  back: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+  fwd: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  home: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
+  tab: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
   folder: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
 };
 const COLORS = ['#0E6E8C', '#6D28D9', '#1D4ED8', '#0F766E', '#0369A1', '#A16207', '#BE185D', '#B91C1C', '#7C3AED', '#C2410C', '#15803D', '#475569'];
@@ -189,8 +193,14 @@ function showSetup(step, ctx = {}) {
 
 // --- desktop ---------------------------------------------------------------------
 const WINS = new Map(); let zTop = 10;
+// Keeps the browser's Back (and the Back button on app windows) from leaving ZeroOS.
+function guardHistory() {
+  if (!history.state || !history.state.zeroos) history.pushState({ zeroos: 1 }, '');
+  if (guardHistory.on) return; guardHistory.on = true;
+  window.addEventListener('popstate', (e) => { if (S.user && (!e.state || !e.state.zeroos)) history.pushState({ zeroos: 1 }, ''); });
+}
 function showDesktop() {
-  WINS.clear();
+  WINS.clear(); guardHistory();
   $('#root').innerHTML = `
     <header class="bar">
       <button class="brand" data-home aria-label="Show desktop">${sysIcon(SVG.logo, 'var(--accent)')}<span>ZeroOS</span></button>
@@ -320,15 +330,15 @@ async function openApp(id, newTab) {
   if (BAD.includes(a.state) || a.state === 'stopped' || a.noGui || !a.perms.includes('app.open')) return openAppSettings(id);
   if (WINS.has('app:' + id) && !newTab) return focusWin('app:' + id);
   let info; try { info = await GET(`/api/apps/${id}/open`); } catch (e) { return oops(e); }
-  if (newTab || isPhone()) { window.open(info.url, '_blank', 'noopener'); return; }
-  openWin({ key: 'app:' + id, title: a.name, iconHTML: icon(a.storeId, a.name), dock: true, w: 1100, h: 720, render(body) {
+  if (newTab || isPhone() || info.remote) { window.open(info.url, '_blank', 'noopener'); return; }
+  openWin({ key: 'app:' + id, title: a.name, iconHTML: icon(a.storeId, a.name), dock: true, w: 1100, h: 720, nav: { url: info.url, frame: info.frameable }, render(body) {
     if (info.frameable) { body.innerHTML = `<iframe src="${esc(info.url)}" title="${esc(a.name)}" allow="fullscreen; autoplay; clipboard-write"></iframe>`; }
     else { body.innerHTML = `<div class="center">${icon(a.storeId, a.name, '4.5em')}<h2>${esc(a.name)} opens in its own tab</h2><p class="muted" style="max-width:26em">This app doesn't allow being shown inside a window.</p><a class="btn pri" href="${esc(info.url)}" target="_blank" rel="noopener">Open ${esc(a.name)}</a></div>`; }
   } });
 }
 
 // --- window manager ----------------------------------------------------------------
-function openWin({ key, title, iconHTML, render, w = 900, h = 640, dock = false }) {
+function openWin({ key, title, iconHTML, render, w = 900, h = 640, dock = false, nav = null }) {
   if (WINS.has(key)) { focusWin(key); return WINS.get(key); }
   const host = $('.wins'); const area = $('.desk').getBoundingClientRect();
   const saved = JSON.parse(localStorage.getItem('zw:' + key) || 'null');
@@ -337,13 +347,18 @@ function openWin({ key, title, iconHTML, render, w = 900, h = 640, dock = false 
   const n = WINS.size;
   const x = Math.max(8, Math.min(saved?.x ?? (area.width - w) / 2 + n * 22, area.width - w - 8)), y = Math.max(8, Math.min(saved?.y ?? Math.max(8, (maxH - h) / 2) + n * 22, maxH - h + 8));
   const node = el(`<section class="win ${saved?.max ? 'max' : ''}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;pointer-events:auto" aria-label="${esc(title)}">
-    <div class="tbar">${iconHTML}<span class="ttl">${esc(title)}</span>
-      <button class="wbtn wmin" aria-label="Minimize">${SVG.min}</button><button class="wbtn wmax" aria-label="Maximize">${SVG.max}</button><button class="wbtn wclose" aria-label="Close">${SVG.x}</button></div>
+    <div class="tbar">${iconHTML}${nav && nav.frame ? `<span class="wnav"><button class="wbtn" data-nav="back" aria-label="Back" title="Back">${SVG.back}</button><button class="wbtn" data-nav="fwd" aria-label="Forward" title="Forward">${SVG.fwd}</button><button class="wbtn" data-nav="home" aria-label="Go to the app's start page" title="Start page">${SVG.home}</button></span>` : ''}<span class="ttl">${esc(title)}</span>
+      ${nav ? `<button class="wbtn" data-nav="tab" aria-label="Open in a new tab" title="Open in a new tab">${SVG.tab}</button>` : ''}<button class="wbtn wmin" aria-label="Minimize">${SVG.min}</button><button class="wbtn wmax" aria-label="Maximize">${SVG.max}</button><button class="wbtn wclose" aria-label="Close">${SVG.x}</button></div>
     <div class="wbody"></div><div class="grip"></div></section>`);
   const win = { key, title, iconHTML, dock, el: node, body: $('.wbody', node) };
   WINS.set(key, win); host.append(node);
   const save = () => { const r = node.getBoundingClientRect(), a = $('.desk').getBoundingClientRect(); if (node.classList.contains('max')) { const o = JSON.parse(localStorage.getItem('zw:' + key) || '{}'); o.max = true; localStorage.setItem('zw:' + key, JSON.stringify(o)); } else localStorage.setItem('zw:' + key, JSON.stringify({ x: r.left - a.left, y: r.top - a.top, w: r.width, h: r.height })); };
   $('.wclose', node).onclick = () => closeWin(key);
+  // Back and forward use the browser's own history, which is where pages inside app windows are recorded.
+  $$('[data-nav]', node).forEach((b) => b.onclick = () => { const k = b.dataset.nav;
+    if (k === 'back') history.back(); else if (k === 'fwd') history.forward();
+    else if (k === 'tab') window.open(nav.url, '_blank', 'noopener');
+    else { const f = $('iframe', node); if (f) f.src = nav.url; } });
   $('.wmin', node).onclick = () => { node.classList.add('min'); };
   const toggleMax = () => { node.classList.toggle('max'); save(); };
   $('.wmax', node).onclick = toggleMax;

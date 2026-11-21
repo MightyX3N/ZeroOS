@@ -188,7 +188,7 @@ type tunnelRow struct {
 }
 
 func (s *Server) tunnels(u *userView) []tunnelRow {
-	rows, err := s.C.DB.Query(`SELECT t.id,t.kind,COALESCE(t.app_id,''),COALESCE(a.store_id,''),t.name,t.local_port,t.proto,t.address,COALESCE(t.created_by,0) FROM tunnels t LEFT JOIN apps a ON a.id=t.app_id ORDER BY t.kind, t.name`)
+	rows, err := s.C.DB.Query(`SELECT t.id,t.kind,COALESCE(t.app_id,''),COALESCE(a.store_id,''),t.name,t.local_port,t.proto,t.address,COALESCE(t.created_by,0) FROM tunnels t LEFT JOIN apps a ON a.id=t.app_id WHERE t.kind<>'zeroos' ORDER BY t.kind, t.name`)
 	if err != nil {
 		return []tunnelRow{}
 	}
@@ -224,6 +224,9 @@ func (s *Server) sharing(w http.ResponseWriter, r *http.Request) {
 		"tunnels":    s.tunnels(&userView{u}),
 		"canAccount": u.Can("playit.account"),
 		"canPorts":   u.Can("playit.tunnels.all") || u.QuotaTunnels > 0,
+		"remote":     s.remoteInfo(),
+		"canRemote":  u.Can("system.manage"),
+		"twoStep":    u.TOTP,
 	})
 }
 

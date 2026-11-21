@@ -3,8 +3,10 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -221,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sharing/claim", s.need("playit.account", s.claimPoll))
 	mux.HandleFunc("POST /api/sharing/key", s.need("playit.account", s.claimKey))
 	mux.HandleFunc("DELETE /api/sharing", s.need("playit.account", s.unlink))
+	mux.HandleFunc("PUT /api/sharing/remote", s.need("system.manage", s.setRemote))
 	mux.HandleFunc("POST /api/sharing/ports", s.signedIn(s.sharePort))
 	mux.HandleFunc("DELETE /api/sharing/tunnels/{tid}", s.signedIn(s.removeTunnel))
 
@@ -280,6 +283,16 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 	go s.background(ctx)
 	go s.serveSocket(ctx)
+	// The encrypted port, for reaching ZeroOS from outside through playit.
+	if cert, err := s.certificate(); err != nil {
+		log.Printf("encrypted port not started: %v", err)
+	} else if tln, err := tls.Listen("tcp", s.C.Cfg.TLSListen, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}); err != nil {
+		log.Printf("encrypted port not started: %v", err)
+	} else {
+		tsrv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second, ErrorLog: log.New(io.Discard, "", 0)}
+		go func() { <-ctx.Done(); _ = tsrv.Close() }()
+		go func() { _ = tsrv.Serve(tln) }()
+	}
 	ln, err := net.Listen("tcp", s.C.Cfg.Listen)
 	if err != nil {
 		return err

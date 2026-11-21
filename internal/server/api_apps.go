@@ -243,6 +243,17 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 	a, _ := s.Apps.Get(r.PathValue("id"))
+	if !isHomeHost(r.Host) {
+		// Away from home the mini PC's own address doesn't work: use the app's shared address.
+		var addr string
+		_ = s.C.DB.QueryRow(`SELECT address FROM tunnels WHERE kind='app' AND app_id=?`, a.ID).Scan(&addr)
+		if addr == "" {
+			fail(w, 400, "To open "+a.Name+" away from home, turn on Share online for it first (right-click the app › Share online).")
+			return
+		}
+		ok(w, map[string]any{"url": "http://" + addr + a.URLSuffix, "frameable": false, "remote": true, "noGui": a.NoGUI})
+		return
+	}
 	host := r.Host
 	if h, _, err := net.SplitHostPort(r.Host); err == nil {
 		host = h
@@ -251,7 +262,8 @@ func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 		host = "[" + host + "]"
 	}
 	url := fmt.Sprintf("http://%s:%d%s", host, a.Port, a.URLSuffix)
-	ok(w, map[string]any{"url": url, "frameable": s.Apps.Frameable(a), "noGui": a.NoGUI})
+	// A page opened over https can't show a plain http app inside a window.
+	ok(w, map[string]any{"url": url, "frameable": r.TLS == nil && s.Apps.Frameable(a), "noGui": a.NoGUI})
 }
 
 func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, fn func(string) error) {

@@ -28,6 +28,7 @@ type Config struct {
 	DataDir   string // on the SSD: database, app data, store cache
 	MountRoot string // where NAS shares are mounted
 	Listen    string // web UI address, e.g. ":80"
+	TLSListen string // encrypted web UI address, used for reaching ZeroOS from outside
 	Socket    string // local socket for the command-line tool
 }
 
@@ -37,6 +38,7 @@ func DefaultConfig() Config {
 		DataDir:   "/var/lib/zeroos",
 		MountRoot: "/mnt/zeroos",
 		Listen:    ":80",
+		TLSListen: ":8443",
 		Socket:    "/run/zeroos/zeroos.sock",
 	}
 	if v := os.Getenv("ZEROOS_DATA"); v != "" {
@@ -47,6 +49,9 @@ func DefaultConfig() Config {
 	}
 	if v := os.Getenv("ZEROOS_LISTEN"); v != "" {
 		c.Listen = v
+	}
+	if v := os.Getenv("ZEROOS_TLS_LISTEN"); v != "" {
+		c.TLSListen = v
 	}
 	if v := os.Getenv("ZEROOS_SOCKET"); v != "" {
 		c.Socket = v

@@ -323,11 +323,15 @@ async function setSharing(w, pane) {
   pane.innerHTML = `<div class="between"><div class="col" style="gap:.2em"><h1>Sharing online</h1><span class="muted">Reach your apps and game servers from outside your home, through playit.gg.</span></div>${p.linked && d.canPorts ? '<button class="btn pri" data-port>Share a port</button>' : ''}</div>
     ${p.linked ? `<div class="box"><div class="row"><span class="badge ok">playit linked</span>${p.premium ? '<span class="badge prem">Premium</span>' : ''}<span class="badge ${p.agentRunning ? 'ok' : 'warn'}">${p.agentRunning ? 'Agent running' : 'Agent not running'}</span><span class="grow"></span><a href="https://playit.gg/account" target="_blank" rel="noopener">Open playit.gg</a>${d.canAccount ? '<button class="btn sm danger" data-unlink>Unlink</button>' : ''}</div>${p.problem ? `<div class="note warn">${esc(p.problem)}</div>` : ''}</div>`
       : d.canAccount ? `<div class="box"><h3>Link playit</h3><span class="muted">playit.gg is a free service that gives your apps an address on the internet, without changing anything on your router.</span><div data-link></div></div>` : '<div class="note info">Sharing online isn\'t set up on this server yet. Ask the owner.</div>'}
+    ${p.linked && d.canRemote ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>Reach ZeroOS from outside</h3><span class="muted">Open this desktop when you are away from home.</span></div><input type="checkbox" class="switch" data-remote ${d.remote.on ? 'checked' : ''} aria-label="Reach ZeroOS from outside"></div>
+      ${d.remote.on ? (d.remote.address ? `<div class="row" style="flex-wrap:nowrap"><code class="addr grow">${esc(d.remote.address)}</code><button class="btn sm" data-copy="${esc(d.remote.address)}">Copy</button></div><span class="muted">The first time, your browser warns that it doesn't know this site's certificate. That is expected: ZeroOS makes its own. Choose "Advanced" and continue. The connection is encrypted. Away from home, apps open in a new tab and need Share online turned on.</span>` : '<div class="row"><span class="spinner dark"></span><span class="muted">Getting its address from playit…</span></div>') : (d.twoStep ? '' : '<div class="note info">Turn on two-step sign-in for your account first. It protects ZeroOS once it can be reached from the internet. <button class="link" data-2fa>Go to Profile</button></div>')}</div>` : ''}
     ${p.linked ? `<h2>Apps</h2>${tunnelList(d.tunnels.filter((t) => t.kind === 'app'), 'No app is shared online. Turn it on in an app\'s settings (right-click the app › Share online).')}
     <h2>Shared ports</h2>${tunnelList(d.tunnels.filter((t) => t.kind === 'port'), 'For things without their own switch, like a game server made inside Pterodactyl.')}` : ''}`;
   const again = () => { settingsDraw(w); refresh(); };
   const lk = $('[data-link]', pane); if (lk) playitLinkBox(lk, again);
   const un = $('[data-unlink]', pane); if (un) un.onclick = async () => { if (await confirmDlg('Unlink playit?', 'Everything stops being reachable from outside your home. Your tunnels stay on your playit account.', 'Unlink', true)) busy(un, async () => { await DEL('/api/sharing'); again(); }); };
+  const rs = $('[data-remote]', pane); if (rs) rs.onchange = async () => { rs.disabled = true; try { await PUT('/api/sharing/remote', { on: rs.checked }); } catch (e) { oops(e); } again(); };
+  const tf = $('[data-2fa]', pane); if (tf) tf.onclick = () => w.go('profile');
   $$('[data-copy]', pane).forEach((b) => b.onclick = () => copyText(b.dataset.copy));
   $$('[data-stop]', pane).forEach((b) => b.onclick = () => busy(b, async () => { await DEL('/api/sharing/tunnels/' + b.dataset.stop); again(); }));
   const pb = $('[data-port]', pane); if (pb) pb.onclick = () => {
@@ -337,7 +341,7 @@ async function setSharing(w, pane) {
       <div class="note bad hide" role="alert"></div><div class="foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn pri">Share</button></div></form>`);
     $('form', dl.el).onsubmit = (e) => { e.preventDefault(); const f = e.target, note = $('.note', dl.el); note.classList.add('hide');
       busy($('button.pri', dl.el), async () => { try { await POST('/api/sharing/ports', { name: f.n.value, port: +f.p.value, proto: f.t.value }); dl.close(); again(); } catch (err) { note.textContent = err.message; note.classList.remove('hide'); } }); }; };
-  if (d.tunnels.some((t) => !t.address)) setTimeout(() => { if (w.sec === 'sharing' && document.body.contains(pane) && !$('#layer').children.length) settingsDraw(w); }, 6000);
+  if (d.tunnels.some((t) => !t.address) || (d.remote.on && !d.remote.address)) setTimeout(() => { if (w.sec === 'sharing' && document.body.contains(pane) && !$('#layer').children.length) settingsDraw(w); }, 6000);
 }
 function tunnelList(list, emptyText) {
   if (!list.length) return `<p class="muted">${emptyText}</p>`;

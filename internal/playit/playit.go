@@ -47,6 +47,7 @@ type Playit struct {
 
 	mu      sync.Mutex
 	asked   time.Time // when playit last answered
+	last    Info      // that answer
 	premium bool      // as of that answer
 	secure  []Secure  // HTTPS tunnels made on playit.gg for this computer
 }
@@ -88,6 +89,26 @@ func (p *Playit) Premium() bool {
 
 // Refresh asks playit again which tunnels this computer has.
 func (p *Playit) Refresh() { _ = p.Info() }
+
+// InfoCached is Info without asking playit more than once every 20 seconds.
+// Open windows ask every few seconds to stay current; playit shouldn't be.
+func (p *Playit) InfoCached() Info {
+	p.mu.Lock()
+	fresh, last := time.Since(p.asked) < 20*time.Second, p.last
+	p.mu.Unlock()
+	if !fresh || last.Linked != p.Linked() {
+		return p.Info()
+	}
+	last.AgentRunning = AgentRunning()
+	return last
+}
+
+// forget makes the next InfoCached ask playit again (after something changed there).
+func (p *Playit) forget() {
+	p.mu.Lock()
+	p.asked = time.Time{}
+	p.mu.Unlock()
+}
 
 // RefreshIfStale does the same unless playit answered within the last 20 seconds.
 func (p *Playit) RefreshIfStale() {
@@ -234,6 +255,7 @@ func (p *Playit) PollClaim() (string, error) {
 
 // SetSecret stores an agent secret key (also used for "paste a key" linking) and starts the agent.
 func (p *Playit) SetSecret(secret string) error {
+	defer p.forget()
 	secret = strings.TrimSpace(secret)
 	if secret == "" {
 		return errors.New("The secret key is empty.")
@@ -250,6 +272,7 @@ func (p *Playit) SetSecret(secret string) error {
 
 // Unlink stops the agent and forgets the key. Tunnels stay on the playit account.
 func (p *Playit) Unlink() error {
+	defer p.forget()
 	_ = exec.Command("docker", "rm", "-f", containerName).Run()
 	_ = p.c.SetSetting("playit_secret", "")
 	p.mu.Lock()
@@ -414,7 +437,7 @@ func (p *Playit) Info() Info {
 	}
 	in.AgentID, in.Premium = rd.AgentID, rd.Permissions.HasPremium
 	p.mu.Lock()
-	p.premium, p.secure, p.asked = in.Premium, secureTunnels(rd), time.Now()
+	p.premium, p.secure, p.asked, p.last = in.Premium, secureTunnels(rd), time.Now(), in
 	p.mu.Unlock()
 	return in
 }
@@ -469,6 +492,7 @@ func tunnelRequest(name, agentID string, localPort int, proto string) map[string
 
 // CreateTunnel makes a playit tunnel to a local port and returns its id.
 func (p *Playit) CreateTunnel(name string, localPort int, proto string) (string, error) {
+	defer p.forget()
 	if !p.Linked() {
 		return "", errors.New("Link a playit account first (Settings › Sharing online).")
 	}
@@ -490,6 +514,7 @@ func (p *Playit) CreateTunnel(name string, localPort int, proto string) (string,
 
 // DeleteTunnel removes a tunnel from the playit account.
 func (p *Playit) DeleteTunnel(id string) error {
+	defer p.forget()
 	if id == "" || !p.Linked() {
 		return nil
 	}

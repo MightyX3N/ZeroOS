@@ -246,7 +246,7 @@ type userView struct{ *auth.User }
 func (s *Server) sharing(w http.ResponseWriter, r *http.Request) {
 	u := userOf(r)
 	ok(w, map[string]any{
-		"playit":     s.Playit.Info(),
+		"playit":     s.Playit.InfoCached(),
 		"tunnels":    s.tunnels(&userView{u}),
 		"canAccount": u.Can("playit.account"),
 		"canPorts":   u.Can("playit.tunnels.all") || u.QuotaTunnels > 0,

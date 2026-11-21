@@ -143,7 +143,12 @@ function openStore(showApp) {
   const win = openWin({ key: 'store', title: 'Store', iconHTML: sysIcon(SVG.store, '#111827'), w: 1060, h: 700, render(body, w) {
     body.innerHTML = `<nav class="side" aria-label="Categories"></nav><div class="pane"></div>`;
     w.state = { q: '', cat: '', verified: false, installedOnly: false };
-    w.seq = 0; w.list = () => storeList(w, ++w.seq); w.show = (id) => { clearTimeout(w.qt); return storeApp(w, id, ++w.seq); }; // seq: a slow answer never draws over a newer page
+    w.seq = 0; // seq: a slow answer never draws over a newer page
+    w.list = () => { w.page = null; const r = storeList(w, ++w.seq); liveKick(w); return r; };
+    w.show = (id) => { clearTimeout(w.qt); w.page = id; const r = storeApp(w, id, ++w.seq); liveKick(w); return r; };
+    const st = () => w.state;
+    w.watch = () => w.page ? ['/api/store/' + encodeURIComponent(w.page), appsSig] : [`/api/store?q=${encodeURIComponent(st().q)}&cat=${encodeURIComponent(st().cat)}${st().verified ? '&verified=1' : ''}`];
+    w.redrawQuiet = () => w.page ? storeApp(w, w.page, ++w.seq) : storeList(w, ++w.seq);
     w.list();
   } });
   if (typeof showApp === 'string') win.show(showApp);
@@ -157,8 +162,8 @@ async function storeList(w, seq) {
   $('[data-inst]', side).onclick = () => { st.installedOnly = true; st.cat = ''; w.list(); };
   const apps = st.installedOnly ? r.apps.filter((a) => a.installed) : r.apps;
   if (!$('[data-q]', pane)) {
-    pane.innerHTML = `<div class="row"><div class="grow" style="position:relative;flex:1 1 18em"><input type="search" data-q placeholder="Search, for example photos, passwords or Minecraft" aria-label="Search the store" style="padding-left:2.4em"><span style="position:absolute;left:.8em;top:.85em;color:var(--mute)">${SVG.search}</span></div>
-      <label class="check"><input type="checkbox" data-v>Verified only</label></div><p class="muted" data-info></p><div class="cards" data-cards></div>`;
+    pane.innerHTML = `<div class="row"><div class="grow" style="position:relative;flex:1 1 18em"><input type="search" data-q data-keep placeholder="Search, for example photos, passwords or Minecraft" aria-label="Search the store" style="padding-left:2.4em"><span style="position:absolute;left:.8em;top:.85em;color:var(--mute)">${SVG.search}</span></div>
+      <label class="check"><input type="checkbox" data-v data-keep>Verified only</label></div><p class="muted" data-info></p><div class="cards" data-cards></div>`;
     $('[data-q]', pane).oninput = (e) => { clearTimeout(w.qt); w.qt = setTimeout(() => { st.q = e.target.value; w.list(); }, 200); };
     $('[data-v]', pane).onchange = (e) => { st.verified = e.target.checked; w.list(); };
   }
@@ -243,13 +248,16 @@ function openAppSettings(id, tab) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
   const win = openWin({ key: 'appset:' + id, title: a.name + ' settings', iconHTML: icon(a.storeId, a.name), w: 860, h: 620, render(body, w) {
     body.innerHTML = `<nav class="side" aria-label="${esc(a.name)} settings"></nav><div class="pane"></div>`;
-    w.go = (t) => { w.tab = t; appSettingsDraw(w, id); };
+    w.go = (t) => { w.tab = t; appSettingsDraw(w, id); liveKick(w); };
     w.tab = 'overview';
+    w.watch = () => ['/api/apps/' + id].concat(w.tab === 'access' ? [`/api/apps/${id}/access`] : w.tab === 'activity' ? ['/api/activity?app=' + encodeURIComponent(id)] : []);
+    w.redrawQuiet = () => appSettingsDraw(w, id);
   } });
   win.go(tab || win.tab || 'overview');
 }
 async function appSettingsDraw(w, id) {
   const side = $('.side', w.body), pane = $('.pane', w.body);
+  w.tickFn = null;
   let d; try { d = await GET('/api/apps/' + id); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
   const a = d.app, has = (p) => d.perms.includes(p);
   const tabs = [['overview', 'Overview', true], ['folders', 'Folders', has('app.settings')], ['sharing', 'Sharing', has('app.share')], ['access', 'Who can use it', has('app.access')], ['activity', 'Activity', true], ['log', 'Log', has('app.settings')]].filter((t) => t[2]);
@@ -301,13 +309,15 @@ async function appSettingsDraw(w, id) {
       ${acc.users.map((u) => `<tr><td><strong>${esc(u.username)}</strong><br><span class="muted">${esc(u.role || 'No role')}</span></td>${cols.map((p) => `<td><input type="checkbox" data-u="${u.id}" data-p="${p.name}" ${u.perms.includes(p.name) ? 'checked' : ''} ${u.locked ? 'disabled' : ''} aria-label="${esc(u.username)}: ${esc(p.label)}"></td>`).join('')}</tr>`).join('')}
       </tbody></table></div><p class="muted">Owners and admins can always do everything.</p>`;
     $$('input[data-u]', pane).forEach((c) => c.onchange = async () => { const uid = +c.dataset.u; const perms = $$(`input[data-u="${uid}"]:checked`, pane).map((x) => x.dataset.p);
-      try { await PUT(`/api/apps/${id}/access`, { userId: uid, perms }); } catch (e) { c.checked = !c.checked; oops(e); } });
+      try { await PUT(`/api/apps/${id}/access`, { userId: uid, perms }); c.defaultChecked = c.checked; } catch (e) { c.checked = !c.checked; oops(e); } });
   } else if (w.tab === 'activity') {
     pane.innerHTML = `<h1>Activity</h1>${await activityHTML('?app=' + encodeURIComponent(id))}`;
   } else if (w.tab === 'log') {
     pane.innerHTML = `<div class="between"><h1>Log</h1><button class="btn sm" data-r>Refresh</button></div><p class="muted">What the app itself has printed. Handy when something isn't working.</p><pre class="log" data-l>Loading…</pre>`;
     const load = async () => { try { const r = await GET(`/api/apps/${id}/logs`); const l = $('[data-l]', pane); l.textContent = r.log || 'Nothing yet.'; l.scrollTop = l.scrollHeight; } catch (e) { $('[data-l]', pane).textContent = e.message; } };
     $('[data-r]', pane).onclick = load; load();
+    // the log follows along by itself, as long as you are reading its end
+    w.tickFn = () => { const l = $('[data-l]', pane); if (l && w.tab === 'log' && l.scrollHeight - l.scrollTop - l.clientHeight < 40) load(); };
   }
 }
 async function copyText(t) { try { await navigator.clipboard.writeText(t); toast('Copied.'); } catch (e) { const d = dialog(`<h2>Copy this address</h2><input type="text" readonly value="${esc(t)}"><div class="foot"><button class="btn pri" data-close>Done</button></div>`); $('input', d.el).select(); } }
@@ -322,18 +332,24 @@ const settingsSections = () => [['users', 'Users and roles', can('users.manage')
 function openSettings(section) {
   const win = openWin({ key: 'settings', title: 'Settings', iconHTML: sysIcon(SVG.gear, '#475569'), w: 980, h: 680, render(body, w) {
     body.innerHTML = `<nav class="side" aria-label="Settings sections"></nav><div class="pane"></div>`;
-    w.go = (s) => { w.sec = s; settingsDraw(w); };
+    w.go = (s) => { w.sec = s; settingsDraw(w); liveKick(w); };
+    w.watch = () => ({
+      users: ['/api/users', '/api/roles'].concat(w.uid && w.view !== 'roles' ? [`/api/users/${w.uid}/apps`] : []),
+      space: ['/api/storage'], sharing: ['/api/sharing'], system: ['/api/system'], activity: ['/api/activity'],
+      profile: [{ url: '/api/me/sessions', pick: (l) => l.map((x) => [x.id, x.current]) }, { url: '/api/me', pick: (u) => [u.username, u.role, u.totp] }],
+    })[w.sec];
+    w.redrawQuiet = () => settingsDraw(w, true);
   } });
   win.go(section || win.sec || settingsSections().find((s) => s[2])[0]);
 }
-function settingsDraw(w) {
+function settingsDraw(w, quiet) { // quiet: keep showing the old page until the new one is ready
   const side = $('.side', w.body), pane = $('.pane', w.body);
   const secs = settingsSections().filter((s) => s[2]);
   if (!secs.some((s) => s[0] === w.sec)) w.sec = secs[0][0];
   side.innerHTML = secs.map(([k, l]) => `<button data-s="${k}" class="${w.sec === k ? 'on' : ''}">${l}</button>`).join('');
   $$('[data-s]', side).forEach((b) => b.onclick = () => w.go(b.dataset.s));
-  pane.innerHTML = '<div class="row"><span class="spinner dark"></span></div>';
-  ({ users: setUsers, space: setSpace, sharing: setSharing, system: setSystem, activity: setActivity, profile: setProfile })[w.sec](w, pane).catch((e) => { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; });
+  if (!quiet) pane.innerHTML = '<div class="row"><span class="spinner dark"></span></div>';
+  return ({ users: setUsers, space: setSpace, sharing: setSharing, system: setSystem, activity: setActivity, profile: setProfile })[w.sec](w, pane).catch((e) => { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; });
 }
 
 async function setSpace(w, pane) {
@@ -379,7 +395,7 @@ async function setSharing(w, pane) {
       <div class="note bad hide" role="alert"></div><div class="foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn pri">Share</button></div></form>`);
     $('form', dl.el).onsubmit = (e) => { e.preventDefault(); const f = e.target, note = $('.note', dl.el); note.classList.add('hide');
       busy($('button.pri', dl.el), async () => { try { await POST('/api/sharing/ports', { name: f.n.value, port: +f.p.value, proto: f.t.value }); dl.close(); again(); } catch (err) { note.textContent = err.message; note.classList.remove('hide'); } }); }; };
-  if (d.tunnels.some((t) => !t.address) || (d.remote.on && !d.remote.address)) setTimeout(() => { if (w.sec === 'sharing' && document.body.contains(pane) && !$('#layer').children.length) settingsDraw(w); }, 6000);
+  if (d.tunnels.some((t) => !t.address) || (d.remote.on && !d.remote.address)) setTimeout(() => { if (w.sec === 'sharing' && document.body.contains(pane) && !$('#layer').children.length) settingsDraw(w, true); }, 6000);
 }
 function tunnelList(list, emptyText) {
   if (!list.length) return `<p class="muted">${emptyText}</p>`;

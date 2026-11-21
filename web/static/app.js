@@ -230,8 +230,56 @@ function showDesktop() {
 async function refresh() {
   if (!S.user || !$('.desk')) return;
   try { const d = await GET('/api/desktop'); S.apps = d.apps; S.attention = d.attention; S.system = d.system || null; S.sharedCount = d.sharedCount; } catch (e) { return; }
-  renderIcons(); renderWidgets(); renderDock();
+  renderIcons(); renderWidgets(); renderDock(); liveTick();
   const n = $('.bar .dotn'); if (n) { n.textContent = S.attention.length; n.classList.toggle('hide', !S.attention.length); }
+}
+
+// --- keeping open windows current -------------------------------------------------------
+// Every window says what it shows (w.watch: addresses to ask, or functions), and is drawn
+// again when an answer changes. Never while you are busy in it: typing, a half-filled form,
+// or an open dialog or menu.
+const appsSig = () => JSON.stringify(S.apps.map((a) => [a.id, a.storeId, a.state, a.name, a.shared]));
+function winBusy(w) {
+  if ($('#layer').children.length) return true;
+  const ae = document.activeElement;
+  if (ae && w.el.contains(ae) && !ae.hasAttribute('data-keep') && // data-keep: lives through a redraw (the Store's search box)
+     (ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || (ae.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes(ae.type)))) return true;
+  // a form you started filling in; switches and tick boxes outside a form save at once
+  for (const i of $$('form input,form textarea,form select', w.body)) {
+    if (i.hasAttribute('data-keep')) continue;
+    if (i.type === 'checkbox' || i.type === 'radio') { if (i.checked !== i.defaultChecked) return true; }
+    else if (i.tagName === 'SELECT') { if ([...i.options].some((o) => o.selected !== o.defaultSelected)) return true; }
+    else if (i.value !== i.defaultValue) return true;
+  }
+  return false;
+}
+async function liveCheck(w) {
+  if (!w.watch || w.liveRun) return;
+  w.liveRun = true;
+  try {
+    const deps = w.watch(); if (!deps) return;
+    const key = deps.map((d) => typeof d === 'string' ? d : d.url || 'fn').join('|');
+    const parts = await Promise.all(deps.map((d) => typeof d === 'function' ? d() : GET(d.url || d).then((v) => JSON.stringify(d.pick ? d.pick(v) : v), () => 'gone')));
+    if (!WINS.has(w.key)) return;
+    const now = parts.join('\n');
+    if (w.liveKey !== key) { w.liveKey = key; w.liveSig = now; return; } // a new page: this is what it shows
+    if (now === w.liveSig || winBusy(w)) return;                          // busy: try again next time
+    w.liveSig = now;
+    const scroller = $('.pane', w.body), top = scroller ? scroller.scrollTop : 0, open = $$('details', w.body).map((d) => d.open);
+    await w.redrawQuiet();
+    const sc = $('.pane', w.body); if (sc) sc.scrollTop = top;
+    $$('details', w.body).forEach((d, i) => { if (open[i]) d.open = true; });
+  } catch (e) { /* next time */ } finally { w.liveRun = false; }
+}
+// liveKick: a window just drew a page; note what it shows right away.
+function liveKick(w) { w.liveKey = null; liveCheck(w); }
+function liveTick() {
+  for (const w of [...WINS.values()]) {
+    const id = w.key.startsWith('appset:') ? w.key.slice(7) : w.key.startsWith('app:') ? w.key.slice(4) : null;
+    if (id && !S.apps.some((a) => a.id === id)) { if (!$('#layer').children.length) closeWin(w.key); continue; } // the app was removed
+    if (w.tickFn && !winBusy(w)) w.tickFn();
+    liveCheck(w);
+  }
 }
 
 const BAD = ['waiting', 'crashed', 'failed'];

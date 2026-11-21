@@ -22,7 +22,8 @@ import (
 )
 
 // RuntipiURL is the Runtipi app store (GPL-3.0), read as a GitHub tarball.
-var RuntipiURL = "https://codeload.github.com/runtipi/runtipi-appstore/tar.gz/refs/heads/main"
+// HEAD follows the catalog's default branch, whatever it is called.
+var RuntipiURL = "https://codeload.github.com/runtipi/runtipi-appstore/tar.gz/HEAD"
 
 //go:embed verified.json
 var verifiedJSON []byte

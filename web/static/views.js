@@ -38,6 +38,7 @@ function nasFlow(box, onAdded) {
               $(`input[value="${CSS.escape(share)}"]`, sharesBox).closest('label').remove();
             } catch (err) { n2.textContent = share + ': ' + err.message; n2.classList.remove('hide'); }
           }
+          if (!$$('input[type=checkbox]', sharesBox).length) { sharesBox.classList.add('hide'); sharesBox.innerHTML = ''; }
           if (onAdded) onAdded();
         });
       } catch (err) { note.textContent = err.message; note.classList.remove('hide'); }

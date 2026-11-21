@@ -304,9 +304,20 @@ func (s *Server) background(ctx context.Context) {
 		}
 	}()
 	go func() {
-		if s.Cat.Count() == 0 {
-			if err := s.Cat.Sync(); err != nil {
-				log.Printf("store: %v", err)
+		// Keep trying until the store has its catalog (the network may not be up yet at boot).
+		for wait := 5 * time.Second; s.Cat.Count() == 0; {
+			err := s.Cat.Sync()
+			if err == nil {
+				break
+			}
+			log.Printf("store: %v (trying again in %s)", err, wait)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			if wait < 10*time.Minute {
+				wait *= 2
 			}
 		}
 	}()

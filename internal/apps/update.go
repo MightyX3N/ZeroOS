@@ -37,6 +37,15 @@ type UndoPoint struct {
 	At      int64  `json:"at"`      // when the update was made
 	Size    int64  `json:"size"`    // bytes the copy takes
 	Build   bool   `json:"build"`   // the update was a newer build of the same version
+	Edit    bool   `json:"edit"`    // the change was an edited compose file
+}
+
+// appBefore is what an edit can change besides the recipe, kept for putting it back.
+type appBefore struct {
+	Name    string            `json:"name"`
+	Port    int               `json:"port"`
+	Folders map[string]Picked `json:"folders"`
+	Env     map[string]string `json:"env"`
 }
 
 // UpdateInfo says which newer version the store has for an installed app.
@@ -257,18 +266,23 @@ func (m *Manager) Update(id string, noUndo bool) (*Job, error) {
 	job := m.newJob(id)
 	go func() {
 		defer m.unlock(id)
-		m.runUpdate(job, id, noUndo)
+		m.runUpdate(job, id, noUndo, nil)
 	}()
 	return job, nil
 }
 
-func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
+// runUpdate replaces what an app runs: with the store's newer version, a newer
+// build of the same one, or (change) an edited compose file of a custom app.
+func (m *Manager) runUpdate(job *Job, id string, noUndo bool, change *recipeChange) {
 	a, err := m.Get(id)
 	if err != nil {
 		job.finish(err)
 		return
 	}
 	up := m.UpdateFor(a)
+	if change != nil {
+		up = &UpdateInfo{From: a.Settings.Version, To: a.Settings.Version}
+	}
 	if up == nil {
 		job.finish(errors.New("This app is already on the newest version."))
 		return
@@ -304,10 +318,22 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 		}
 		// the images it runs now keep a name of their own, so the download can't push them out
 		m.keepImages(id)
-		a.Settings.Undo = &UndoPoint{Version: old, At: time.Now().Unix(), Size: dirSize(filepath.Join(undo, "data")), Build: up.Build}
+		// and the app's name, page port, folders and answers, which an edit can change
+		was, _ := json.Marshal(appBefore{Name: a.Name, Port: a.Port, Folders: a.Folders, Env: a.Settings.Env})
+		_ = os.WriteFile(filepath.Join(undo, "app.json"), was, 0o600)
+		a.Settings.Undo = &UndoPoint{Version: old, At: time.Now().Unix(), Size: dirSize(filepath.Join(undo, "data")), Build: up.Build, Edit: change != nil}
 	}
 
-	if !up.Build {
+	switch {
+	case change != nil:
+		if err := copyRecipe(change.dir, recipe); err != nil {
+			_ = m.putBack(id, job, a, wasState, noUndo)
+			job.finish(errors.New("Couldn't save the new compose file, so the app was not changed."))
+			return
+		}
+		a.Name, a.Port, a.Folders, a.Settings.Env = change.name, change.port, change.folders, change.env
+		_, _ = m.c.DB.Exec(`UPDATE apps SET name=?, port=? WHERE id=?`, a.Name, a.Port, id)
+	case !up.Build:
 		if err := copyRecipe(sa.dir, recipe); err != nil {
 			_ = m.putBack(id, job, a, wasState, noUndo)
 			job.finish(errors.New("Couldn't read the new version from the store, so the app was not updated."))
@@ -335,6 +361,9 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 		what := "The previous version (" + old + ")"
 		if up.Build {
 			what = "The previous build"
+		}
+		if change != nil {
+			what = "Your previous compose file"
 		}
 		job.finish(errors.New(why + " " + what + " was put back, with everything as it was."))
 	}
@@ -375,7 +404,11 @@ func (m *Manager) runUpdate(job *Job, id string, noUndo bool) {
 	if up.Build {
 		detail = a.Name + " (a newer build)"
 	}
-	m.c.Log("system", "updated", detail, id, true, "")
+	if change != nil {
+		m.c.Log("system", "changed the compose file of", a.Name, id, true, "")
+	} else {
+		m.c.Log("system", "updated", detail, id, true, "")
+	}
 	job.step("Done")
 	job.finish(nil)
 }
@@ -473,6 +506,13 @@ func (m *Manager) putBack(id string, job *Job, a *App, wasState string, noUndo b
 			return err
 		}
 		m.restoreImages(id)
+		if b, err := os.ReadFile(filepath.Join(undo, "app.json")); err == nil {
+			var was appBefore
+			if json.Unmarshal(b, &was) == nil && was.Port > 0 {
+				a.Name, a.Port, a.Folders, a.Settings.Env = was.Name, was.Port, was.Folders, was.Env
+				_, _ = m.c.DB.Exec(`UPDATE apps SET name=?, port=? WHERE id=?`, a.Name, a.Port, id)
+			}
+		}
 	}
 	m.dropKeptImages(id)
 	_ = os.RemoveAll(undo)

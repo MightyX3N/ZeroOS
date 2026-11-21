@@ -224,6 +224,9 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 	roots := s.Store.Roots()
 	for key, p := range a.Folders {
 		f := folder{Key: key, Label: "Folder", Root: p.Root, Path: p.Path, Connected: s.Store.RootConnected(p.Root)}
+		if a.Catalog == "custom" {
+			f.Label = "The folder written as " + key
+		}
 		if inStore {
 			for _, need := range sa.Folders {
 				if need.Key == key {
@@ -259,6 +262,7 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 		"perms": s.Auth.AppPermsFor(u, a.ID), "gpuAvailable": dirExists("/dev/dri"), "playitLinked": s.Playit.Linked(),
 		"playitPremium": s.Playit.Premium(), "secure": s.secureInfo(a.PublicPort()), "port": a.PublicPort(), "sharingNote": a.SharingNote,
 		"version": a.Settings.Version, "update": s.Apps.UpdateFor(a), "undo": s.Apps.UndoFor(a), "undoDays": apps.UndoDays,
+		"custom": a.Catalog == "custom", "canCompose": a.Catalog == "custom" && u.Can("apps.custom") && s.Auth.CanApp(u, a.ID, "app.settings"),
 	}
 	if inStore {
 		out["store"] = map[string]any{"shortDesc": sa.ShortDesc, "version": sa.Version, "website": sa.Website, "verified": sa.Verified}
@@ -523,4 +527,83 @@ func (s *Server) appCheck(w http.ResponseWriter, r *http.Request) {
 	s.Apps.CheckBuild(id)
 	a, _ := s.Apps.Get(id)
 	ok(w, map[string]any{"update": s.Apps.UpdateFor(a)})
+}
+
+// --- your own apps, from a compose file -----------------------------------
+
+// customCheck reads a pasted compose file and says what will be asked.
+func (s *Server) customCheck(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Compose string `json:"compose"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		failErr(w, err)
+		return
+	}
+	chk, _, err := apps.CheckCompose(in.Compose)
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	ok(w, chk)
+}
+
+func (s *Server) customInstall(w http.ResponseWriter, r *http.Request) {
+	u := userOf(r)
+	var in apps.CustomRequest
+	if err := readJSON(r, &in); err != nil {
+		failErr(w, err)
+		return
+	}
+	job, err := s.Apps.InstallCustom(in, u.ID)
+	s.log(r, "added an app from a compose file", in.Name, "", err == nil, errText(err))
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	_ = s.Auth.GrantAllOnApp(u.ID, job.AppID)
+	ok(w, map[string]string{"job": job.ID, "appId": job.AppID})
+}
+
+func (s *Server) customSource(w http.ResponseWriter, r *http.Request) {
+	if !userOf(r).Can("apps.custom") {
+		fail(w, 403, "You don't have permission to do that.")
+		return
+	}
+	src, err := s.Apps.CustomSource(r.PathValue("id"))
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	ok(w, src)
+}
+
+func (s *Server) customEdit(w http.ResponseWriter, r *http.Request) {
+	if !userOf(r).Can("apps.custom") {
+		fail(w, 403, "You don't have permission to do that.")
+		return
+	}
+	id := r.PathValue("id")
+	var in struct {
+		apps.CustomRequest
+		NoUndo bool `json:"noUndo"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		failErr(w, err)
+		return
+	}
+	job, err := s.Apps.EditCustom(id, in.CustomRequest, in.NoUndo)
+	var ns *apps.ErrNoSpace
+	if errors.As(err, &ns) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "noSpace": true})
+		return
+	}
+	s.log(r, "changed the compose file of", in.Name, id, err == nil, errText(err))
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	ok(w, map[string]string{"job": job.ID, "appId": id})
 }

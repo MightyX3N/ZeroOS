@@ -25,6 +25,7 @@ import (
 // Global permissions cover the whole server.
 var GlobalPerms = []PermInfo{
 	{"apps.install", "Get apps from the Store"},
+	{"apps.custom", "Add own apps from a compose file (such an app can do anything on the mini PC)"},
 	{"store.repos", "Manage store catalogs"},
 	{"storage.manage", "Manage Space and NAS shares"},
 	{"playit.account", "Link or unlink playit"},
@@ -91,9 +92,14 @@ func New(c *core.Core) (*Auth, error) {
 // ensureRoles creates the editable default roles once.
 func (a *Auth) ensureRoles() error {
 	var n int
-	if err := a.c.DB.QueryRow(`SELECT COUNT(*) FROM roles`).Scan(&n); err != nil || n > 0 {
+	if err := a.c.DB.QueryRow(`SELECT COUNT(*) FROM roles`).Scan(&n); err != nil {
 		return err
 	}
+	if n > 0 {
+		a.addNewPerms()
+		return nil
+	}
+	_ = a.c.SetSetting("perms_known", strings.Join(allNames(GlobalPerms), ","))
 	type role struct {
 		name    string
 		perms   []string
@@ -113,6 +119,45 @@ func (a *Auth) ensureRoles() error {
 		}
 	}
 	return nil
+}
+
+// addNewPerms gives the built-in Admin role the permissions a newer ZeroOS
+// added, once. Admin is "everything"; roles people made themselves are theirs.
+func (a *Auth) addNewPerms() {
+	known := map[string]bool{}
+	seen := a.c.Setting("perms_known")
+	if seen == "" {
+		// before this was kept track of, these were all there were
+		seen = "apps.install,store.repos,storage.manage,playit.account,playit.tunnels.all,users.manage,roles.manage,system.view,system.manage,backups.manage"
+	}
+	for _, p := range strings.Split(seen, ",") {
+		known[p] = true
+	}
+	var fresh []string
+	for _, p := range allNames(GlobalPerms) {
+		if !known[p] {
+			fresh = append(fresh, p)
+		}
+	}
+	if len(fresh) > 0 {
+		var raw string
+		if a.c.DB.QueryRow(`SELECT perms FROM roles WHERE name='Admin' AND builtin=1`).Scan(&raw) == nil {
+			var have []string
+			_ = json.Unmarshal([]byte(raw), &have)
+			for _, p := range fresh {
+				found := false
+				for _, h := range have {
+					found = found || h == p
+				}
+				if !found {
+					have = append(have, p)
+				}
+			}
+			b, _ := json.Marshal(have)
+			_, _ = a.c.DB.Exec(`UPDATE roles SET perms=? WHERE name='Admin' AND builtin=1`, string(b))
+		}
+	}
+	_ = a.c.SetSetting("perms_known", strings.Join(allNames(GlobalPerms), ","))
 }
 
 // --- passwords -------------------------------------------------------------

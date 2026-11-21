@@ -143,6 +143,11 @@ func (m *Manager) scan(row interface{ Scan(...any) error }) (*App, error) {
 		a.NoGUI, a.URLSuffix = sa.NoGUI, sa.URLSuffix
 		a.SharePort, a.SharingNote = sa.SharePort, sa.SharingNote
 	}
+	if a.Catalog == "custom" {
+		if cfg, ok := readCustom(m.recipeDir(a.ID)); ok {
+			a.NoGUI = cfg.NoGUI
+		}
+	}
 	return a, nil
 }
 
@@ -320,6 +325,10 @@ func (m *Manager) runInstall(job *Job, id string) {
 	// a fresh install never inherits an older copy left in the app's folder
 	_ = os.RemoveAll(m.recipeDir(id))
 	_ = os.RemoveAll(m.undoDir(id))
+	// an app of your own brings its recipe with it
+	if staged := filepath.Join(m.appDir(id), "recipe.new"); dirExists(staged) {
+		_ = os.Rename(staged, m.recipeDir(id))
+	}
 	if err := m.writeCompose(id, true); err != nil {
 		fail(err)
 		return
@@ -392,6 +401,9 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	}
 	_ = os.MkdirAll(shared, 0o755)
 	in := buildInput{AppID: id, DataDir: dataDir, SharedDir: shared, Port: a.Port, Folders: map[string]string{}, UsesNAS: len(a.NASRoots()) > 0, GPU: a.Settings.GPU, RenderGID: renderGID()}
+	if cfg, ok := readCustom(m.recipeDir(id)); ok {
+		in.Custom = &cfg.Custom
+	}
 	for key, p := range a.Folders {
 		real, err := m.st.Resolve(p.Root, p.Path)
 		if err != nil {
@@ -412,12 +424,15 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 			}
 		}
 	}
+	// Store apps expect their folders to belong to user 1000. An app of your
+	// own gets them as Docker itself would make them.
+	own := in.Custom != nil
 	for _, d := range plan.dirsToCreate(in) {
-		if err := os.MkdirAll(d, 0o755); err == nil && firstTime {
+		if err := os.MkdirAll(d, 0o755); err == nil && firstTime && !own {
 			_ = os.Chown(d, storage.AppUID, storage.AppGID)
 		}
 	}
-	if firstTime {
+	if firstTime && !own {
 		_ = chownTree(dataDir, storage.AppUID, storage.AppGID)
 	}
 	yml, err := plan.Build(in)

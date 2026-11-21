@@ -192,6 +192,10 @@ func (s *Server) Handler() http.Handler {
 	// apps
 	mux.HandleFunc("POST /api/apps", s.need("apps.install", s.install))
 	mux.HandleFunc("GET /api/jobs/{jid}", s.signedIn(s.job))
+	mux.HandleFunc("POST /api/custom/check", s.need("apps.custom", s.customCheck))
+	mux.HandleFunc("POST /api/custom", s.need("apps.custom", s.customInstall))
+	mux.HandleFunc("GET /api/apps/{id}/compose", s.needApp("app.settings", s.customSource))
+	mux.HandleFunc("PUT /api/apps/{id}/compose", s.needApp("app.settings", s.customEdit))
 	mux.HandleFunc("GET /api/apps/{id}", s.needApp("app.view", s.appDetail))
 	mux.HandleFunc("GET /api/apps/{id}/open", s.needApp("app.open", s.appOpen))
 	mux.HandleFunc("POST /api/apps/{id}/start", s.needApp("app.power", s.appStart))

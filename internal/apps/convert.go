@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -100,8 +101,8 @@ func (p *composePlan) hostPaths() []string {
 			sm, _ := s.(map[string]any)
 			vols, _ := sm["volumes"].([]any)
 			for _, v := range vols {
-				if str, ok := v.(string); ok {
-					out = append(out, strings.SplitN(str, ":", 2)[0])
+				if src, _, ok := volumeSpec(v); ok && src != "" {
+					out = append(out, src)
 				}
 			}
 		}
@@ -134,6 +135,7 @@ type buildInput struct {
 	UsesNAS   bool              // ZeroOS starts it itself, after the NAS is connected
 	GPU       bool              // pass the graphics chip in
 	RenderGID int
+	Custom    *customInfo // set for an app of your own: its compose file is kept as written where possible
 }
 
 var varRe = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)(:-[^}]*)?\}`)
@@ -178,6 +180,9 @@ func (p *composePlan) dirsToCreate(in buildInput) []string {
 	var out []string
 	for _, hp := range p.hostPaths() {
 		real := in.hostPath(hp)
+		if in.Custom != nil {
+			real = in.customPath(hp)
+		}
 		if strings.HasPrefix(real, in.DataDir) {
 			// files like ".../config.yml" are created by the app itself
 			if filepath.Ext(real) == "" || strings.HasSuffix(hp, "/") {
@@ -185,6 +190,33 @@ func (p *composePlan) dirsToCreate(in buildInput) []string {
 			}
 		}
 	}
+	if in.Custom != nil {
+		for _, name := range p.namedVolumes() {
+			out = append(out, in.volumeDir(name))
+		}
+	}
+	return out
+}
+
+// volumeDir is where a named volume of an app of your own lives: in the app's
+// folder, so it is part of the copy an update keeps.
+func (in buildInput) volumeDir(name string) string {
+	return filepath.Join(in.DataDir, "volumes", name)
+}
+
+// namedVolumes lists the compose file's own named volumes (not ones made elsewhere).
+func (p *composePlan) namedVolumes() []string {
+	var out []string
+	vols, _ := p.yamlDoc["volumes"].(map[string]any)
+	for name, v := range vols {
+		if vm, ok := v.(map[string]any); ok {
+			if ext, has := vm["external"]; has && ext != false {
+				continue
+			}
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -351,6 +383,9 @@ func (p *composePlan) buildFromYAML(in buildInput) map[string]any {
 	b, _ := yaml.Marshal(p.yamlDoc)
 	var doc map[string]any
 	_ = yaml.Unmarshal(b, &doc)
+	if in.Custom != nil {
+		return p.buildCustom(in, doc)
+	}
 	delete(doc, "networks")
 	delete(doc, "version")
 	services := doc["services"].(map[string]any)
@@ -375,4 +410,85 @@ func (p *composePlan) buildFromYAML(in buildInput) map[string]any {
 		}
 	}
 	return doc
+}
+
+// buildCustom adapts an app of your own. It runs as written, except:
+// the page's port goes on the port ZeroOS picked, named volumes and relative
+// folders live in the app's folder, picked folders replace the ones written,
+// and ZeroOS adds its label and decides when the app restarts.
+func (p *composePlan) buildCustom(in buildInput, doc map[string]any) map[string]any {
+	delete(doc, "version")
+	services, _ := doc["services"].(map[string]any)
+	page := in.Custom.Page
+	for name, s := range services {
+		svc, ok := s.(map[string]any)
+		if !ok {
+			continue
+		}
+		delete(svc, "build")
+		svc["restart"] = p.restartPolicy(in)
+		// labels: keep the file's own, add ours
+		switch l := svc["labels"].(type) {
+		case map[string]any:
+			l["zeroos.app"] = in.AppID
+		case []any:
+			svc["labels"] = append(l, "zeroos.app="+in.AppID)
+		default:
+			svc["labels"] = map[string]any{"zeroos.app": in.AppID}
+		}
+		if ports, ok := svc["ports"].([]any); ok && page.Kind == "port" && page.Service == name && in.Port > 0 {
+			moved := false
+			var kept []any
+			for _, pv := range ports {
+				_, target, proto, ok := portSpec(pv)
+				if ok && !moved && target == page.Port && proto == "tcp" {
+					kept = append(kept, fmt.Sprintf("%d:%d", in.Port, target))
+					moved = true
+					continue
+				}
+				kept = append(kept, pv)
+			}
+			svc["ports"] = kept
+		}
+		if vols, ok := svc["volumes"].([]any); ok {
+			for i, v := range vols {
+				switch x := v.(type) {
+				case string:
+					parts := strings.SplitN(x, ":", 2)
+					if len(parts) == 2 {
+						vols[i] = in.customPath(parts[0]) + ":" + parts[1]
+					}
+				case map[string]any:
+					if src, _ := x["source"].(string); src != "" {
+						if t, _ := x["type"].(string); t == "bind" || strings.ContainsAny(src, "/.~") {
+							x["source"] = in.customPath(src)
+						}
+					}
+				}
+			}
+		}
+	}
+	// named volumes keep working as volumes, but their files live in the app's folder
+	if vols, ok := doc["volumes"].(map[string]any); ok {
+		for _, name := range p.namedVolumes() {
+			vols[name] = map[string]any{"driver": "local", "driver_opts": map[string]any{"type": "none", "o": "bind", "device": in.volumeDir(name)}}
+		}
+	}
+	return doc
+}
+
+// customPath maps a folder written in a compose file to a real place: a picked
+// folder, the app's own folder for relative paths, or itself (named volumes
+// and paths of the computer itself).
+func (in buildInput) customPath(src string) string {
+	if real, ok := in.Folders[src]; ok {
+		return real
+	}
+	switch {
+	case strings.HasPrefix(src, "./"), src == ".":
+		return filepath.Join(in.DataDir, "files", strings.TrimPrefix(src, "."))
+	case strings.HasPrefix(src, "../"):
+		return filepath.Join(in.DataDir, "files", strings.ReplaceAll(src, "../", ""))
+	}
+	return src
 }

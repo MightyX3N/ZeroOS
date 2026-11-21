@@ -157,9 +157,10 @@ async function storeList(w, seq) {
   const pane = $('.pane', w.body), side = $('.side', w.body), st = w.state;
   let r; try { r = await GET(`/api/store?q=${encodeURIComponent(st.q)}&cat=${encodeURIComponent(st.cat)}${st.verified ? '&verified=1' : ''}`); } catch (e) { if (seq === w.seq) pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
   if (seq !== w.seq) return;
-  side.innerHTML = `<button data-c="" class="${!st.cat && !st.installedOnly ? 'on' : ''}">All apps</button>${r.categories.map((c) => `<button data-c="${esc(c)}" class="${st.cat === c ? 'on' : ''}">${esc(catName(c))}</button>`).join('')}<hr><button data-inst class="${st.installedOnly ? 'on' : ''}">Installed</button>`;
+  side.innerHTML = `<button data-c="" class="${!st.cat && !st.installedOnly ? 'on' : ''}">All apps</button>${r.categories.map((c) => `<button data-c="${esc(c)}" class="${st.cat === c ? 'on' : ''}">${esc(catName(c))}</button>`).join('')}<hr><button data-inst class="${st.installedOnly ? 'on' : ''}">Installed</button>${can('apps.custom') ? '<button data-own>Add your own app</button>' : ''}`;
   $$('[data-c]', side).forEach((b) => b.onclick = () => { st.cat = b.dataset.c; st.installedOnly = false; w.list(); });
   $('[data-inst]', side).onclick = () => { st.installedOnly = true; st.cat = ''; w.list(); };
+  const own = $('[data-own]', side); if (own) own.onclick = () => customWizard();
   const apps = st.installedOnly ? r.apps.filter((a) => a.installed) : r.apps;
   if (!$('[data-q]', pane)) {
     pane.innerHTML = `<div class="row"><div class="grow" style="position:relative;flex:1 1 18em"><input type="search" data-q data-keep placeholder="Search, for example photos, passwords or Minecraft" aria-label="Search the store" style="padding-left:2.4em"><span style="position:absolute;left:.8em;top:.85em;color:var(--mute)">${SVG.search}</span></div>
@@ -248,6 +249,69 @@ function installProgress(a, jobId, appId) {
     onFail: (d, foot) => { foot.insertAdjacentHTML('beforeend', '<button class="btn danger" data-rm>Remove it</button>'); $('[data-rm]', d.el).onclick = async () => { await DEL(`/api/apps/${appId}?data=1`).catch(oops); d.close(); refresh(); }; } });
 }
 
+// --- your own app, from a compose file ---------------------------------------------------
+// customWizard(): add one. customWizard(id, src): change the one that is installed (src from /api/apps/id/compose).
+function customWizard(id, src) {
+  const edit = !!id, st = { name: src ? src.name : '', compose: src ? src.compose : '', page: src ? src.page : null, folders: {}, env: src ? { ...(src.env || {}) } : {}, check: null };
+  const d = dialog('<div data-step class="col"></div>', { wide: true });
+  const box = $('[data-step]', d.el);
+  const step1 = () => {
+    box.innerHTML = `<h2>${edit ? 'Change ' + esc(st.name) : 'Add your own app'}</h2>
+      <p class="muted">${edit ? 'Change the compose file below. ZeroOS keeps a copy of the app first, so the change can be undone.' : 'Paste a docker-compose.yml. It becomes an app like the ones from the Store: an icon, Open, Share online, updates with undo.'}</p>
+      <form class="col"><label class="f">Name<input type="text" name="n" maxlength="40" required value="${esc(st.name)}" placeholder="For example My website"></label>
+      <label class="f">Compose file<textarea name="c" required spellcheck="false" style="min-height:16em;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85em;white-space:pre;overflow:auto" placeholder="services:&#10;  web:&#10;    image: nginx&#10;    ports:&#10;      - &quot;8080:80&quot;">${esc(st.compose)}</textarea></label>
+      <div class="note bad hide" role="alert"></div>
+      <div class="foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn pri">Next</button></div></form>`;
+    $('[data-close]', box).onclick = d.close;
+    $('form', box).onsubmit = (e) => { e.preventDefault(); const f = e.target, note = $('.note', box); note.classList.add('hide');
+      busy($('button.pri', box), async () => { st.name = f.n.value.trim(); st.compose = f.c.value;
+        try { st.check = await POST('/api/custom/check', { compose: st.compose }); step2(); } catch (err) { note.textContent = err.message; note.classList.remove('hide'); } }); };
+  };
+  const step2 = () => {
+    const c = st.check, web = c.ports.filter((p) => p.proto === 'tcp');
+    const key = (p) => p.service + ':' + p.container;
+    let sel = st.page && st.page.kind === 'port' && web.some((p) => key(p) === st.page.service + ':' + st.page.port) ? st.page.service + ':' + st.page.port : st.page && st.page.kind !== 'port' ? st.page.kind : web.length ? key(web[0]) : c.hostNet ? 'fixed' : 'none';
+    box.innerHTML = `<h2>${esc(st.name)}</h2>
+      <form class="col">
+      <div class="box"><strong>It runs</strong>${c.services.map((x) => `<span>${esc(x)}</span>`).join('')}</div>
+      ${c.warnings.length ? `<div class="note warn"><strong>Only add this if you trust where it came from.</strong>${c.warnings.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : ''}
+      <label class="f">Where is the app's page?<select name="page">${web.map((p) => `<option value="${esc(key(p))}" ${sel === key(p) ? 'selected' : ''}>Port ${p.container} of ${esc(p.service)}${p.published ? ` (written as ${esc(p.published)})` : ''}</option>`).join('')}
+        <option value="fixed" ${sel === 'fixed' ? 'selected' : ''}>On another port, which I type</option><option value="none" ${sel === 'none' ? 'selected' : ''}>It has no page</option></select>
+        <span class="muted" style="font-weight:400" data-pagehint></span></label>
+      <label class="f hide" data-fixed>Port of the app's page<input type="number" name="fixed" min="1" max="65535" inputmode="numeric" value="${st.page && st.page.kind === 'fixed' ? st.page.port : ''}"></label>
+      ${c.folders.map((f, i) => `<div class="box"><strong>Folder the app sees as ${esc(f.container)}</strong><span class="muted">The file says ${esc(f.key)}. Choose where it really is, for example on your NAS.</span><div class="row"><code class="addr grow" data-fl="${i}">${edit && src.folders && src.folders[f.key] ? 'As it is now' : 'On this mini PC'}</code><button type="button" class="btn sm" data-pick="${i}">Choose folder</button></div></div>`).join('')}
+      ${c.vars.map((v) => `<label class="f">${esc(v)}<input type="${/PASS|SECRET|TOKEN|KEY/i.test(v) ? 'password' : 'text'}" data-var="${esc(v)}" value="${esc(st.env[v] || '')}" required autocomplete="off"><span class="muted" style="font-weight:400">The compose file expects a value for this.</span></label>`).join('')}
+      <p class="muted">Named volumes and relative folders go in the app's own folder on this mini PC's SSD. Everything else runs as written.</p>
+      <div class="note bad hide" role="alert"></div>
+      <div class="foot"><button class="btn" type="button" data-back>Back</button><button class="btn pri" data-go>${edit ? 'Save changes' : 'Install'}</button></div></form>`;
+    const f = $('form', box), fixed = $('[data-fixed]', box), hint = $('[data-pagehint]', box);
+    const showFixed = () => { const v = f.page.value; fixed.classList.toggle('hide', v !== 'fixed'); f.fixed.required = v === 'fixed';
+      hint.textContent = v === 'fixed' ? 'For apps that open their port themselves. ZeroOS leaves the ports in the file alone.' : v === 'none' ? 'It gets no Open button. It works in the background.' : 'ZeroOS puts this page on a free port, so it never clashes with another app.'; };
+    f.page.onchange = showFixed; showFixed();
+    $('[data-back]', box).onclick = () => { collect(); step1(); };
+    $$('[data-pick]', box).forEach((b) => b.onclick = async () => { const n = c.folders[+b.dataset.pick]; const p = await pickFolder('Folder the app sees as ' + n.container, 'The file says ' + n.key + '.'); if (p) { st.folders[n.key] = { root: p.root, path: p.path }; $(`[data-fl="${b.dataset.pick}"]`, box).textContent = p.label; } });
+    const collect = () => { const v = f.page.value;
+      st.page = v === 'none' ? { kind: 'none' } : v === 'fixed' ? { kind: 'fixed', port: +f.fixed.value || 0 } : { kind: 'port', service: v.slice(0, v.lastIndexOf(':')), port: +v.slice(v.lastIndexOf(':') + 1) };
+      $$('[data-var]', box).forEach((i) => st.env[i.dataset.var] = i.value); };
+    const send = (noUndo) => busy($('[data-go]', box), async () => {
+      const note = $('.note.bad', box); note.classList.add('hide'); collect();
+      const body = { name: st.name, compose: st.compose, page: st.page, folders: st.folders, env: st.env };
+      const a = { id: 'custom', storeId: 'custom', name: st.name, noGui: st.page.kind === 'none' };
+      try {
+        if (!edit) { const r = await POST('/api/custom', body); d.close(); refresh(); installProgress(a, r.job, r.appId); return; }
+        const r = await PUT(`/api/apps/${id}/compose`, { ...body, noUndo }); d.close(); refresh();
+        jobProgress(a, r.job, id, { title: 'Changing ' + st.name, doing: 'changing it', okText: `${st.name} now runs the new compose file. You can undo this for a week in its settings.`, okToast: st.name + ' was changed.', failToast: st.name + " wasn't changed.", open: true });
+      } catch (err) {
+        if (err.data && err.data.noSpace && !noUndo) { note.textContent = err.message + ' You can free up space first, or save without a way back.'; note.classList.remove('hide');
+          const b = $('[data-go]', box); b.textContent = 'Save without a way back'; b.classList.remove('pri'); b.classList.add('danger'); f.onsubmit = (e) => { e.preventDefault(); send(true); };
+        } else { note.textContent = err.message; note.classList.remove('hide'); }
+      }
+    });
+    f.onsubmit = (e) => { e.preventDefault(); send(false); };
+  };
+  step1();
+}
+
 // --- updating an app, and going back -----------------------------------------------------------
 // a: an installed app from S.apps. to: the version in the store.
 function updateApp(id) {
@@ -273,10 +337,10 @@ function updateApp(id) {
 }
 async function undoUpdate(id, undo) {
   const a = S.apps.find((v) => v.id === id); if (!a) return;
-  const was = undo.build ? 'the previous build' : undo.version;
-  if (!await confirmDlg(undo.build ? `Go back to the previous build of ${a.name}?` : `Go back to ${a.name} ${undo.version}?`, `${a.name} goes back to exactly how it was before the update on ${fmtTime(undo.at)}. Anything you did in ${a.name} since then is lost. Folders on your NAS are not changed.`, 'Go back', true)) return;
+  const was = undo.edit ? 'its previous compose file' : undo.build ? 'the previous build' : undo.version;
+  if (!await confirmDlg(undo.edit ? `Go back to the previous compose file of ${a.name}?` : undo.build ? `Go back to the previous build of ${a.name}?` : `Go back to ${a.name} ${undo.version}?`, `${a.name} goes back to exactly how it was before the ${undo.edit ? 'change' : 'update'} on ${fmtTime(undo.at)}. Anything you did in ${a.name} since then is lost. Folders on your NAS are not changed.`, 'Go back', true)) return;
   try { const r = await POST(`/api/apps/${id}/undo`); refresh();
-    jobProgress(a, r.job, id, { title: undo.build ? 'Putting the previous build of ' + a.name + ' back' : 'Putting ' + a.name + ' ' + undo.version + ' back', doing: 'going back', okText: `${a.name} is back on ${was}, as it was.`, okToast: a.name + ' is back on ' + was + '.', failToast: a.name + " couldn't go back.", open: true });
+    jobProgress(a, r.job, id, { title: undo.edit ? 'Putting the previous compose file of ' + a.name + ' back' : undo.build ? 'Putting the previous build of ' + a.name + ' back' : 'Putting ' + a.name + ' ' + undo.version + ' back', doing: 'going back', okText: `${a.name} is back on ${was}, as it was.`, okToast: a.name + ' is back on ' + was + '.', failToast: a.name + " couldn't go back.", open: true });
   } catch (e) { oops(e); }
 }
 
@@ -298,7 +362,7 @@ async function appSettingsDraw(w, id) {
   w.tickFn = null;
   let d; try { d = await GET('/api/apps/' + id); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
   const a = d.app, has = (p) => d.perms.includes(p);
-  const tabs = [['overview', 'Overview', true], ['folders', 'Folders', has('app.settings')], ['sharing', 'Sharing', has('app.share')], ['access', 'Who can use it', has('app.access')], ['activity', 'Activity', true], ['log', 'Log', has('app.settings')]].filter((t) => t[2]);
+  const tabs = [['overview', 'Overview', true], ['folders', 'Folders', has('app.settings')], ['sharing', 'Sharing', has('app.share')], ['access', 'Who can use it', has('app.access')], ['compose', 'Compose file', !!d.canCompose], ['activity', 'Activity', true], ['log', 'Log', has('app.settings')]].filter((t) => t[2]);
   if (!tabs.some((t) => t[0] === w.tab)) w.tab = 'overview';
   side.innerHTML = tabs.map(([k, l]) => `<button data-t="${k}" class="${w.tab === k ? 'on' : ''}">${l}</button>`).join('');
   $$('[data-t]', side).forEach((b) => b.onclick = () => w.go(b.dataset.t));
@@ -311,7 +375,7 @@ async function appSettingsDraw(w, id) {
       ${a.problem ? `<div class="note warn">${esc(a.problem)}</div>` : ''}
       ${a.noGui ? '<div class="note info">This app has no page of its own to open. It works in the background.</div>' : ''}
       ${d.update && a.state !== 'updating' ? `<div class="box" style="border-color:var(--accent)"><div class="between"><div class="col" style="gap:.1em"><h3>Update available</h3><span>${d.update.build ? `A newer build of ${esc(a.name)} can be downloaded.` : `Version ${esc(d.update.to)} is in the Store. ${esc(a.name)} is on ${esc(d.update.from || 'an older version')}.`}</span></div>${has('app.update') ? '<button class="btn pri" data-update>Update</button>' : ''}</div><span class="muted">ZeroOS keeps a copy first, so an update can be undone for a week.</span></div>` : ''}
-      ${d.undo && a.state !== 'updating' ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>Updated ${fmtTime(d.undo.at)}</h3><span>You can go back to ${d.undo.build ? 'the previous build' : 'version ' + esc(d.undo.version)}, exactly as it was, until ${fmtTime(d.undo.at + d.undoDays * 86400)}.</span></div>${has('app.update') ? '<div class="row"><button class="btn sm" data-undo>Undo the update</button><button class="btn sm" data-keepver>Keep this version</button></div>' : ''}</div><span class="muted">The copy takes ${fmtBytes(d.undo.size)}. "Keep this version" deletes it now.</span></div>` : ''}
+      ${d.undo && a.state !== 'updating' ? `<div class="box"><div class="between"><div class="col" style="gap:.1em"><h3>${d.undo.edit ? 'Changed' : 'Updated'} ${fmtTime(d.undo.at)}</h3><span>You can go back to ${d.undo.edit ? 'the compose file as it was' : d.undo.build ? 'the previous build' : 'version ' + esc(d.undo.version)}, with everything exactly as it was, until ${fmtTime(d.undo.at + d.undoDays * 86400)}.</span></div>${has('app.update') ? `<div class="row"><button class="btn sm" data-undo>${d.undo.edit ? 'Undo the change' : 'Undo the update'}</button><button class="btn sm" data-keepver>Keep this version</button></div>` : ''}</div><span class="muted">The copy takes ${fmtBytes(d.undo.size)}. "Keep this version" deletes it now.</span></div>` : ''}
       <div class="cards">
         ${d.folders.length ? `<div class="box"><div class="between"><h3>Folders</h3>${has('app.settings') ? '<button class="link" data-go="folders">Change</button>' : ''}</div>${d.folders.map((f) => `<span>${esc(f.label)}: <strong>${esc(f.rootLabel)}${f.path && f.path !== '/' ? esc(f.path.replace(/\//g, ' / ')) : ''}</strong>${f.connected ? '' : ' <span class="badge warn">Not connected</span>'}</span>`).join('')}<span class="muted">Its own data stays on this mini PC's SSD.</span></div>` : ''}
         ${has('app.share') && !a.noGui ? `<div class="box"><div class="between"><h3>Share online</h3><button class="link" data-go="sharing">${d.tunnel || d.secure ? 'Manage' : 'Set up'}</button></div>${d.secure ? `<code class="addr">${esc(d.secure.address)}</code>` : ''}${d.tunnel ? (d.tunnel.address ? `<code class="addr">${esc(d.tunnel.address)}</code>` : '<span class="muted">Getting its address…</span>') : (d.secure ? '' : '<span class="muted">Only reachable at home.</span>')}</div>` : ''}
@@ -320,6 +384,7 @@ async function appSettingsDraw(w, id) {
       </div>
       <div class="row">${has('app.power') ? (running ? `<button class="btn" data-act="restart">Restart</button><button class="btn" data-act="stop">Stop</button>` : a.state !== 'installing' ? `<button class="btn pri" data-act="start">Start</button>` : '') : ''}${has('app.remove') ? `<button class="btn danger" data-rm>Remove</button>` : ''}</div>
       ${has('app.update') && !d.update && a.state !== 'updating' && a.state !== 'installing' ? `<p class="muted"><button class="link" data-check>Check for a newer build</button></p>` : ''}
+      ${d.custom ? '<p class="muted">Your own app, from a compose file</p>' : ''}
       ${d.store ? `<p class="muted">${d.version ? 'Version ' + esc(d.version) + ' · ' : ''}From the Store${d.store.verified ? ' · Verified' : ' · Community'}${d.store.website ? ` · <a href="${esc(d.store.website)}" target="_blank" rel="noopener noreferrer">Website</a>` : ''}</p>` : ''}`;
     const o = $('[data-open]', pane); if (o) { o.onclick = () => openApp(id); $('[data-tab]', pane).onclick = () => openApp(id, true); }
     $$('[data-go]', pane).forEach((b) => b.onclick = () => w.go(b.dataset.go));
@@ -356,6 +421,12 @@ async function appSettingsDraw(w, id) {
       </tbody></table></div><p class="muted">Owners and admins can always do everything.</p>`;
     $$('input[data-u]', pane).forEach((c) => c.onchange = async () => { const uid = +c.dataset.u; const perms = $$(`input[data-u="${uid}"]:checked`, pane).map((x) => x.dataset.p);
       try { await PUT(`/api/apps/${id}/access`, { userId: uid, perms }); c.defaultChecked = c.checked; } catch (e) { c.checked = !c.checked; oops(e); } });
+  } else if (w.tab === 'compose') {
+    let src; try { src = await GET(`/api/apps/${id}/compose`); } catch (e) { pane.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; return; }
+    pane.innerHTML = `<div class="between"><div class="col" style="gap:.2em"><h1>Compose file</h1><span class="muted">${esc(a.name)} is your own app. This is the file it was made from.</span></div><button class="btn pri" data-editc ${a.state === 'updating' ? 'disabled' : ''}>Change</button></div>
+      <pre class="log" style="max-height:none;white-space:pre;overflow:auto">${esc(src.compose)}</pre>
+      <p class="muted">A change goes through the same steps as an update: ZeroOS keeps a copy first, puts it back if the new file doesn't start, and lets you undo for a week.</p>`;
+    $('[data-editc]', pane).onclick = () => customWizard(id, src);
   } else if (w.tab === 'activity') {
     pane.innerHTML = `<h1>Activity</h1>${await activityHTML('?app=' + encodeURIComponent(id))}`;
   } else if (w.tab === 'log') {

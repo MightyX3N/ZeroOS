@@ -1,6 +1,10 @@
 package apps
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestMergeVerified(t *testing.T) {
 	prev := VerifiedFile{Apps: map[string]VerifiedEntry{"old": {Version: "1"}, "broke": {Version: "1"}, "offline": {Version: "1"}}}
@@ -46,5 +50,21 @@ func TestMainOnHost(t *testing.T) {
 	p = &composePlan{services: []rtService{{Name: "web", IsMain: true, InternalPort: "80"}}}
 	if host, _ := p.mainOnHost(); host {
 		t.Error("a normal app is not on the host's network")
+	}
+}
+
+func TestFillTemplates(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, "conf"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "conf", "app.yml.template"), []byte("secret: {{APP_SECRET}}\nport: {{ APP_PORT }}\nother: {{MISSING}}!\n"), 0o640)
+	_ = os.WriteFile(filepath.Join(dir, "keep.yml.template"), []byte("x: {{APP_SECRET}}"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "keep.yml"), []byte("mine"), 0o644)
+	fillTemplates(dir, map[string]string{"APP_SECRET": "s3cret", "APP_PORT": "20001"})
+	b, err := os.ReadFile(filepath.Join(dir, "conf", "app.yml"))
+	if err != nil || string(b) != "secret: s3cret\nport: 20001\nother: !\n" {
+		t.Fatalf("%q %v", b, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "keep.yml")); string(b) != "mine" {
+		t.Error("an existing file was overwritten")
 	}
 }

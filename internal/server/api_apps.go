@@ -293,6 +293,7 @@ func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 		ok(w, map[string]any{"url": a.Scheme() + "://" + addr + a.URLSuffix, "frameable": false, "remote": true, "noGui": a.NoGUI, "ownCert": a.HTTPS})
 		return
 	}
+	s.Apps.CheckScheme(a)
 	host := r.Host
 	if h, _, err := net.SplitHostPort(r.Host); err == nil {
 		host = h

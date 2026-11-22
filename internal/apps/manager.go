@@ -85,11 +85,13 @@ type Manager struct {
 	busy  map[string]bool
 	newer map[string]bool // apps whose images have a newer build to download
 
+	plain map[string]bool // apps the catalog calls https-only that turned out to speak plain http
+
 	backupsRunning atomic.Bool // the backups of all apps are being made
 }
 
 func NewManager(c *core.Core, cat *Catalog, st *storage.Storage) *Manager {
-	return &Manager{c: c, cat: cat, st: st, jobs: map[string]*Job{}, frame: map[string]bool{}, busy: map[string]bool{}, newer: map[string]bool{}}
+	return &Manager{c: c, cat: cat, st: st, jobs: map[string]*Job{}, frame: map[string]bool{}, busy: map[string]bool{}, newer: map[string]bool{}, plain: map[string]bool{}}
 }
 
 func (m *Manager) appDir(id string) string { return filepath.Join(m.c.Cfg.AppsDir(), id) }
@@ -151,6 +153,11 @@ func (m *Manager) scan(row interface{ Scan(...any) error }) (*App, error) {
 	}
 	if sa, ok := m.cat.Get(a.StoreID); ok {
 		a.NoGUI, a.URLSuffix, a.HTTPS = sa.NoGUI, sa.URLSuffix, sa.HTTPS
+		m.mu.Lock()
+		if m.plain[a.ID] {
+			a.HTTPS = false
+		}
+		m.mu.Unlock()
 		a.SharePort, a.SharingNote = sa.SharePort, sa.SharingNote
 	}
 	if a.Catalog == "custom" {
@@ -220,6 +227,25 @@ func (a *App) Scheme() string {
 		return "https"
 	}
 	return "http"
+}
+
+// CheckScheme corrects an app the catalog marks as https-only when its page
+// in fact speaks plain http (the catalogs get this wrong now and then).
+func (m *Manager) CheckScheme(a *App) {
+	if !a.HTTPS || a.NoGUI {
+		return
+	}
+	resp, err := probeClient(3 * time.Second).Get(a.LocalURL())
+	if err == nil {
+		resp.Body.Close()
+		return
+	}
+	if strings.Contains(err.Error(), "HTTP response to HTTPS client") {
+		m.mu.Lock()
+		m.plain[a.ID] = true
+		m.mu.Unlock()
+		a.HTTPS = false
+	}
 }
 
 // probeClient asks an app on this computer for its page. Apps with an https
@@ -464,8 +490,10 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	// Starting files that come with the catalog app (Runtipi's "data" folder).
 	if firstTime {
 		if sa, ok := m.cat.Get(a.StoreID); ok {
+			// They belong where the app's compose file calls "${APP_DATA_DIR}/data".
 			if src := filepath.Join(sa.dir, "data"); dirExists(src) {
-				_ = copyTree(src, dataDir)
+				_ = copyTree(src, filepath.Join(dataDir, "data"))
+				fillTemplates(filepath.Join(dataDir, "data"), m.envVals(a, dataDir, shared))
 			}
 		}
 	}
@@ -495,18 +523,34 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	return os.WriteFile(filepath.Join(dir, ".env"), []byte(m.envFile(a, dataDir, shared)), 0o600)
 }
 
+// fillTemplates writes each "name.template" file out as "name", with every
+// {{VALUE}} in it replaced by the app's setting of that name (how Runtipi
+// catalog apps ship config files that need a generated password in them).
+func fillTemplates(root string, vals map[string]string) {
+	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(p, ".template") {
+			return nil
+		}
+		target := strings.TrimSuffix(p, ".template")
+		if _, err := os.Stat(target); err == nil {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		out := templateVar.ReplaceAllStringFunc(string(b), func(s string) string {
+			return vals[templateVar.FindStringSubmatch(s)[1]]
+		})
+		_ = os.WriteFile(target, []byte(out), info.Mode().Perm())
+		return nil
+	})
+}
+
+var templateVar = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_]+)\s*\}\}`)
+
 func (m *Manager) envFile(a *App, dataDir, shared string) string {
-	ip := hostIP()
-	vals := map[string]string{
-		"TZ": hostTZ(), "APP_ID": a.ID, "APP_PORT": strconv.Itoa(a.Port), "APP_DATA_DIR": dataDir,
-		"ROOT_FOLDER_HOST": shared, "APP_DOMAIN": fmt.Sprintf("%s:%d", ip, a.Port), "LOCAL_DOMAIN": "local",
-		"APP_PROTOCOL": "http", "APP_EXPOSED": "false", "APP_HOST": ip, "INTERNAL_IP": ip,
-		"NETWORK_INTERFACE": defaultIface(), "TIPI_UID": "1000", "TIPI_GID": "1000", "UID": "1000", "GID": "1000",
-		"PUID": "1000", "PGID": "1000", "TIPI_VERSION": "4.5.0", "HOST_NAME": hostName(), "HOSTNAME": hostName(),
-	}
-	for k, v := range a.Settings.Env {
-		vals[k] = v
-	}
+	vals := m.envVals(a, dataDir, shared)
 	keys := make([]string, 0, len(vals))
 	for k := range vals {
 		keys = append(keys, k)
@@ -518,6 +562,22 @@ func (m *Manager) envFile(a *App, dataDir, shared string) string {
 		fmt.Fprintf(&b, "%s='%s'\n", k, strings.ReplaceAll(vals[k], "'", ""))
 	}
 	return b.String()
+}
+
+// envVals are the values an app's compose file can use.
+func (m *Manager) envVals(a *App, dataDir, shared string) map[string]string {
+	ip := hostIP()
+	vals := map[string]string{
+		"TZ": hostTZ(), "APP_ID": a.ID, "APP_PORT": strconv.Itoa(a.Port), "APP_DATA_DIR": dataDir,
+		"ROOT_FOLDER_HOST": shared, "APP_DOMAIN": fmt.Sprintf("%s:%d", ip, a.Port), "LOCAL_DOMAIN": "local",
+		"APP_PROTOCOL": "http", "APP_EXPOSED": "false", "APP_HOST": ip, "INTERNAL_IP": ip,
+		"NETWORK_INTERFACE": defaultIface(), "TIPI_UID": "1000", "TIPI_GID": "1000", "UID": "1000", "GID": "1000",
+		"PUID": "1000", "PGID": "1000", "TIPI_VERSION": "4.5.0", "HOST_NAME": hostName(), "HOSTNAME": hostName(),
+	}
+	for k, v := range a.Settings.Env {
+		vals[k] = v
+	}
+	return vals
 }
 
 // imagesPresent tells whether Docker already has every image the app uses.
@@ -598,6 +658,7 @@ func (m *Manager) waitUp(a *App, max time.Duration) int {
 		if waitHTTP(a.LocalURL(), time.Second) {
 			return upOK
 		}
+		m.CheckScheme(a)
 		if b, total := brokenParts(a.ID); total > 0 && b > 0 {
 			if broken++; broken >= 30 {
 				return upCrashing

@@ -439,6 +439,7 @@ func (m *Manager) comesUp(a *App) bool {
 		}
 		resp, err := client.Get(a.LocalURL())
 		if err != nil {
+			m.CheckScheme(a)
 			return false
 		}
 		resp.Body.Close()

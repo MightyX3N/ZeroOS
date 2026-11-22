@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -433,7 +432,7 @@ func brokenParts(id string) (broken, total int) {
 // of its parts crashes. It gives up early when a part keeps crashing, rather
 // than waiting the whole time for a page that will never come.
 func (m *Manager) comesUp(a *App) bool {
-	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := probeClient(5 * time.Second)
 	answers := func() bool {
 		if a.NoGUI {
 			return true

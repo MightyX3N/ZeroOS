@@ -116,6 +116,31 @@ func (p *composePlan) hostPaths() []string {
 	return out
 }
 
+// mainOnHost tells whether the service with the app's page runs on the
+// computer's own network, and the port it says its page is on (0: not said).
+func (p *composePlan) mainOnHost() (host bool, port int) {
+	if p.yamlDoc != nil {
+		services, _ := p.yamlDoc["services"].(map[string]any)
+		for _, s := range services {
+			sm, _ := s.(map[string]any)
+			x, _ := sm["x-runtipi"].(map[string]any)
+			if main, _ := x["is_main"].(bool); main {
+				nm, _ := sm["network_mode"].(string)
+				fmt.Sscan(fmt.Sprint(x["internal_port"]), &port)
+				return nm == "host", port
+			}
+		}
+		return false, 0
+	}
+	for _, s := range p.services {
+		if s.IsMain {
+			fmt.Sscan(s.InternalPort.String(), &port)
+			return s.NetworkMode == "host", port
+		}
+	}
+	return false, 0
+}
+
 // imageRepos lists what the app runs, without registry and tag.
 func (p *composePlan) imageRepos() []string {
 	var out []string

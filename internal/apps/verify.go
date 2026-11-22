@@ -130,7 +130,16 @@ func (m *Manager) Verify(storeID string) VerifyResult {
 		if broken, total := brokenParts(id); total == 0 || broken > 0 {
 			return done(fmt.Sprintf("%d of its %d parts don't keep running", broken, total))
 		}
-		return done("its page doesn't answer")
+		why := "its page doesn't answer"
+		if resp, err := probeClient(8 * time.Second).Get(a.LocalURL()); err != nil {
+			why += " (" + err.Error() + ")"
+		} else {
+			resp.Body.Close()
+			why += fmt.Sprintf(" (it says %d)", resp.StatusCode)
+		}
+		log := &Job{AppID: id}
+		_ = m.compose(id, log, "logs", "--no-color", "--tail", "6")
+		return done(why + " | " + strings.Join(log.Lines, " | "))
 	}
 	return done("")
 }

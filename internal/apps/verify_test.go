@@ -37,3 +37,14 @@ func TestSampleAnswer(t *testing.T) {
 		t.Errorf("password too short: %q", got)
 	}
 }
+
+func TestMainOnHost(t *testing.T) {
+	p := &composePlan{services: []rtService{{Name: "db"}, {Name: "plex", IsMain: true, InternalPort: "32400", NetworkMode: "host"}}}
+	if host, port := p.mainOnHost(); !host || port != 32400 {
+		t.Errorf("got %v %d", host, port)
+	}
+	p = &composePlan{services: []rtService{{Name: "web", IsMain: true, InternalPort: "80"}}}
+	if host, _ := p.mainOnHost(); host {
+		t.Error("a normal app is not on the host's network")
+	}
+}

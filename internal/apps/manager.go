@@ -3,6 +3,10 @@ package apps
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +43,7 @@ type App struct {
 	Created     int64             `json:"created"`
 	NoGUI       bool              `json:"noGui"`
 	URLSuffix   string            `json:"-"`
+	HTTPS       bool              `json:"-"` // its page only answers over https, with a certificate of its own
 	SharePort   int               `json:"-"` // the port for visitors from outside, when it differs from Port
 	SharingNote string            `json:"-"`
 }
@@ -145,7 +150,7 @@ func (m *Manager) scan(row interface{ Scan(...any) error }) (*App, error) {
 		a.Folders = map[string]Picked{}
 	}
 	if sa, ok := m.cat.Get(a.StoreID); ok {
-		a.NoGUI, a.URLSuffix = sa.NoGUI, sa.URLSuffix
+		a.NoGUI, a.URLSuffix, a.HTTPS = sa.NoGUI, sa.URLSuffix, sa.HTTPS
 		a.SharePort, a.SharingNote = sa.SharePort, sa.SharingNote
 	}
 	if a.Catalog == "custom" {
@@ -206,7 +211,22 @@ func (a *App) NASRoots() []string {
 
 // URL is where the app's page is, as seen from the server itself.
 func (a *App) LocalURL() string {
-	return fmt.Sprintf("http://127.0.0.1:%d%s", a.Port, a.URLSuffix)
+	return fmt.Sprintf("%s://127.0.0.1:%d%s", a.Scheme(), a.Port, a.URLSuffix)
+}
+
+// Scheme is how the app's page is spoken to: http, or https for the few apps that insist.
+func (a *App) Scheme() string {
+	if a.HTTPS {
+		return "https"
+	}
+	return "http"
+}
+
+// probeClient asks an app on this computer for its page. Apps with an https
+// page sign their own certificate, which is fine for a visit from next door.
+func probeClient(wait time.Duration) *http.Client {
+	return &http.Client{Timeout: wait, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DisableKeepAlives: true}}
 }
 
 // --- install ---------------------------------------------------------------
@@ -236,6 +256,13 @@ func (m *Manager) Install(req InstallRequest, userID int64) (*Job, error) {
 					n = *f.Min
 				}
 				v = core.RandomString(n)
+				// Some apps want their key as so many random bytes, written in base64 or hex.
+				if raw := make([]byte, n); f.Encoding == "base64" || f.Encoding == "hex" {
+					_, _ = rand.Read(raw)
+					if v = hex.EncodeToString(raw); f.Encoding == "base64" {
+						v = base64.StdEncoding.EncodeToString(raw)
+					}
+				}
 			}
 		} else if v == "" && f.Default != nil {
 			v = fmt.Sprint(f.Default)
@@ -246,7 +273,7 @@ func (m *Manager) Install(req InstallRequest, userID int64) (*Job, error) {
 		if v != "" && f.Min != nil && len(v) < *f.Min && f.Type != "number" && f.Type != "boolean" {
 			return nil, fmt.Errorf("\"%s\" needs at least %d characters.", f.Label, *f.Min)
 		}
-		if f.Max != nil && len(v) > *f.Max && f.Type != "number" && f.Type != "boolean" {
+		if f.Max != nil && len(v) > *f.Max && f.Type != "number" && f.Type != "boolean" && f.Type != "random" { // a generated key's length counts its bytes
 			return nil, fmt.Errorf("\"%s\" can be at most %d characters.", f.Label, *f.Max)
 		}
 		env[f.EnvVariable] = v
@@ -541,7 +568,7 @@ func (m *Manager) compose(id string, job *Job, args ...string) error {
 }
 
 func waitHTTP(url string, max time.Duration) bool {
-	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := probeClient(5 * time.Second)
 	end := time.Now().Add(max)
 	for time.Now().Before(end) {
 		resp, err := client.Get(url)
@@ -901,7 +928,8 @@ func (m *Manager) Frameable(a *App) bool {
 	if ok {
 		return v
 	}
-	client := &http.Client{Timeout: 4 * time.Second}
+	client := probeClient(4 * time.Second)
+	client.CheckRedirect = nil
 	resp, err := client.Get(a.LocalURL())
 	if err != nil {
 		return true // can't tell yet; try the window

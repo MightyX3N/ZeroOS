@@ -120,7 +120,6 @@ func TestConvertCasaSkips(t *testing.T) {
 	for name, text := range map[string]string{
 		"other architecture": strings.Replace(casaSample, "[amd64, arm64]", "[riscv64]", 1),
 		"nvidia":             strings.Replace(casaSample, "    image: lscr.io/linuxserver/films:1.2.3", "    image: x/y:1\n    runtime: nvidia", 1),
-		"https page":         strings.Replace(casaSample, "  main: films", "  main: films\n  scheme: https", 1),
 	} {
 		if _, _, err := convertCasa([]byte(text)); err == nil {
 			t.Errorf("%s: should be left out", name)

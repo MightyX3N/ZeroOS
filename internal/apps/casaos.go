@@ -50,6 +50,7 @@ type casaConfig struct {
 	Source      string                `json:"source,omitempty"`
 	NoGUI       bool                  `json:"no_gui"`
 	URLSuffix   string                `json:"url_suffix,omitempty"`
+	HTTPS       bool                  `json:"https,omitempty"`
 	FormFields  []FormField           `json:"form_fields"`
 	Folders     map[string]FolderNeed `json:"folders"`
 	Custom      customInfo            `json:"custom"`
@@ -169,12 +170,12 @@ func convertCasa(raw []byte) (*casaConfig, []byte, error) {
 	if strings.Contains(low, "nvidia") || strings.Contains(low, "playit") { // needs a graphics card set up for Docker; ZeroOS has playit built in
 		return nil, nil, errCasaSkip
 	}
-	if s, _ := x["scheme"].(string); s == "https" {
-		return nil, nil, errCasaSkip // its page only answers over https with its own certificate
-	}
 	cfg := &casaConfig{ID: id, Name: title, Available: true, ShortDesc: casaText(x["tagline"]), Description: casaText(x["description"]),
 		Website: casaText(x["website"]), Source: casaText(x["repo"]), FormFields: []FormField{}, Folders: map[string]FolderNeed{}, Images: []string{}}
 	cfg.Custom.Casa = true
+	if s, _ := x["scheme"].(string); s == "https" {
+		cfg.HTTPS = true
+	}
 	if tips, ok := x["tips"].(map[string]any); ok {
 		if t := casaText(tips["before_install"]); t != "" {
 			cfg.Description = strings.TrimSpace(cfg.Description + "\n\n## Good to know\n\n" + t)
@@ -516,7 +517,7 @@ func (cat *Catalog) loadCasa(apps map[string]*StoreApp) {
 			continue
 		}
 		a := &StoreApp{ID: c.ID, Catalog: "casaos", Name: c.Name, ShortDesc: c.ShortDesc, Description: c.Description, Categories: c.Categories,
-			Version: c.Version, Website: c.Website, Source: c.Source, NoGUI: c.NoGUI, URLSuffix: c.URLSuffix, Form: c.FormFields, Folders: []FolderNeed{},
+			Version: c.Version, Website: c.Website, Source: c.Source, NoGUI: c.NoGUI, URLSuffix: c.URLSuffix, HTTPS: c.HTTPS, Form: c.FormFields, Folders: []FolderNeed{},
 			UsesDocker: plan.usesDockerSocket(), dir: dir, images: c.Images, Verified: cat.verified[c.ID]}
 		if c.Custom.Page.Kind == "fixed" {
 			a.fixedPort = c.Custom.Page.Port

@@ -290,7 +290,7 @@ func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "To open "+a.Name+" away from home, turn on Share online for it first (right-click the app › Share online).")
 			return
 		}
-		ok(w, map[string]any{"url": "http://" + addr + a.URLSuffix, "frameable": false, "remote": true, "noGui": a.NoGUI})
+		ok(w, map[string]any{"url": a.Scheme() + "://" + addr + a.URLSuffix, "frameable": false, "remote": true, "noGui": a.NoGUI, "ownCert": a.HTTPS})
 		return
 	}
 	host := r.Host
@@ -300,9 +300,10 @@ func (s *Server) appOpen(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	url := fmt.Sprintf("http://%s:%d%s", host, a.Port, a.URLSuffix)
-	// A page opened over https can't show a plain http app inside a window.
-	ok(w, map[string]any{"url": url, "frameable": r.TLS == nil && s.Apps.Frameable(a), "noGui": a.NoGUI})
+	url := fmt.Sprintf("%s://%s:%d%s", a.Scheme(), host, a.Port, a.URLSuffix)
+	// A page opened over https can't show a plain http app inside a window, and
+	// an app with a certificate of its own has to be let through by the browser first.
+	ok(w, map[string]any{"url": url, "frameable": r.TLS == nil && !a.HTTPS && s.Apps.Frameable(a), "noGui": a.NoGUI, "ownCert": a.HTTPS})
 }
 
 func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, fn func(string) error) {

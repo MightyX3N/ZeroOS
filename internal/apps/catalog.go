@@ -50,6 +50,7 @@ type FormField struct {
 	Default     any    `json:"default,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 	EnvVariable string `json:"env_variable"`
+	Encoding    string `json:"encoding,omitempty"` // for "random": base64 or hex of that many bytes
 	Min         *int   `json:"min,omitempty"`
 	Max         *int   `json:"max,omitempty"`
 	Options     []struct {
@@ -72,6 +73,7 @@ type StoreApp struct {
 	Verified    bool         `json:"verified"`
 	NoGUI       bool         `json:"noGui"`
 	URLSuffix   string       `json:"urlSuffix,omitempty"`
+	HTTPS       bool         `json:"https,omitempty"`
 	Form        []FormField  `json:"form"`
 	Folders     []FolderNeed `json:"folders"`
 	UsesDocker  bool         `json:"usesDocker"`
@@ -278,6 +280,8 @@ type runtipiConfig struct {
 	Source        string      `json:"source"`
 	NoGUI         bool        `json:"no_gui"`
 	URLSuffix     string      `json:"url_suffix"`
+	HTTPS         bool        `json:"https"`
+	Port          int         `json:"port"`
 	FormFields    []FormField `json:"form_fields"`
 	Architectures []string    `json:"supported_architectures"`
 	// ZeroOS's own additions, for its own apps:
@@ -328,7 +332,7 @@ func (cat *Catalog) loadDir(apps map[string]*StoreApp, root, catalog string) {
 		a := &StoreApp{
 			ID: rc.ID, Catalog: catalog, Name: rc.Name, ShortDesc: rc.ShortDesc, Description: desc,
 			Categories: rc.Categories, Version: rc.Version, Website: rc.Website, Source: rc.Source,
-			NoGUI: rc.NoGUI, URLSuffix: rc.URLSuffix, Form: rc.FormFields, dir: dir,
+			NoGUI: rc.NoGUI, URLSuffix: rc.URLSuffix, HTTPS: rc.HTTPS, Form: rc.FormFields, dir: dir,
 			// ZeroOS's own apps are made for it and tested with it.
 			Verified: cat.verified[rc.ID] || catalog == "zeroos",
 		}
@@ -355,6 +359,12 @@ func (cat *Catalog) loadDir(apps map[string]*StoreApp, root, catalog string) {
 		}
 		a.UsesDocker = plan.usesDockerSocket()
 		a.images = plan.imageRepos()
+		// An app on the computer's own network listens where it wants to, not where ZeroOS would put it.
+		if host, port := plan.mainOnHost(); host && !rc.NoGUI {
+			if a.fixedPort = port; port == 0 {
+				a.fixedPort = rc.Port
+			}
+		}
 		if o, ok := cat.over[a.ID]; ok && o.Name != "" {
 			a.Name = o.Name
 		}

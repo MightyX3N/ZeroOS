@@ -408,7 +408,7 @@ async function openApp(id, newTab) {
   if (newTab || isPhone() || info.remote) { window.open(info.url, '_blank', 'noopener'); return; }
   openWin({ key: 'app:' + id, title: a.name, iconHTML: icon(a.storeId, a.name), dock: true, w: 1100, h: 720, nav: { url: info.url, frame: info.frameable }, render(body) {
     if (info.frameable) { body.innerHTML = `<iframe src="${esc(info.url)}" title="${esc(a.name)}" allow="fullscreen; autoplay; clipboard-write"></iframe>`; }
-    else { body.innerHTML = `<div class="center">${icon(a.storeId, a.name, '4.5em')}<h2>${esc(a.name)} opens in its own tab</h2><p class="muted" style="max-width:26em">This app doesn't allow being shown inside a window.</p><a class="btn pri" href="${esc(info.url)}" target="_blank" rel="noopener">Open ${esc(a.name)}</a></div>`; }
+    else { body.innerHTML = `<div class="center">${icon(a.storeId, a.name, '4.5em')}<h2>${esc(a.name)} opens in its own tab</h2><p class="muted" style="max-width:26em">${info.ownCert ? 'This app only works over https and signs its own certificate. Your browser warns about that the first time: choose to continue.' : 'This app doesn\'t allow being shown inside a window.'}</p><a class="btn pri" href="${esc(info.url)}" target="_blank" rel="noopener">Open ${esc(a.name)}</a></div>`; }
   } });
 }
 

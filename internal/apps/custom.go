@@ -35,6 +35,7 @@ type CustomPage struct {
 // customInfo is what a custom app's recipe adds to its compose file.
 type customInfo struct {
 	Page CustomPage `json:"page"`
+	Casa bool       `json:"casa,omitempty"` // converted from the CasaOS store
 }
 
 // customConfig is the config.json of a custom app's recipe.
@@ -83,11 +84,12 @@ func systemPath(p string) bool {
 	return p == "/"
 }
 
-var composeVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
+// "$$" is compose's way of writing a real dollar sign; what follows it is not a variable.
+var composeVar = regexp.MustCompile(`\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-?+][^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
 // givenVars are filled in by ZeroOS for every app.
 var givenVars = map[string]bool{"TZ": true, "PUID": true, "PGID": true, "UID": true, "GID": true, "APP_PORT": true, "APP_DATA_DIR": true,
-	"APP_ID": true, "HOST_NAME": true, "APP_HOST": true, "APP_DOMAIN": true, "INTERNAL_IP": true, "ROOT_FOLDER_HOST": true}
+	"APP_ID": true, "HOST_NAME": true, "HOSTNAME": true, "APP_HOST": true, "APP_DOMAIN": true, "INTERNAL_IP": true, "ROOT_FOLDER_HOST": true}
 
 // portSpec reads one entry of a service's "ports".
 func portSpec(v any) (published string, target int, proto string, ok bool) {

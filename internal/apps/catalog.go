@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,6 +78,8 @@ type StoreApp struct {
 	SharePort   int          `json:"-"`
 	SharingNote string       `json:"-"`
 	dir         string
+	images      []string // what it runs, for telling the same app in another catalog
+	fixedPort   int      // its page is on this port, whatever ZeroOS would pick
 }
 
 // FolderNeed is a big-files folder the app wants (from the NAS, usually).
@@ -150,7 +153,8 @@ func (cat *Catalog) Hook(a *StoreApp, name string) []byte {
 	return b
 }
 
-// Sync downloads the newest catalog. Safe to call while running.
+// Sync downloads the newest catalogs. Safe to call while running. One catalog
+// failing doesn't hold back the other.
 func (cat *Catalog) Sync() error {
 	cat.mu.Lock()
 	if cat.syncing {
@@ -160,6 +164,15 @@ func (cat *Catalog) Sync() error {
 	cat.syncing = true
 	cat.mu.Unlock()
 	defer func() { cat.mu.Lock(); cat.syncing = false; cat.mu.Unlock() }()
+	err := cat.syncRuntipi()
+	if err2 := cat.syncCasa(); err2 != nil {
+		log.Printf("store: %v", err2)
+	}
+	_ = cat.Load()
+	return err
+}
+
+func (cat *Catalog) syncRuntipi() error {
 
 	src := RuntipiURL
 	if v := os.Getenv("ZEROOS_STORE_URL"); v != "" {
@@ -200,7 +213,7 @@ func (cat *Catalog) Sync() error {
 	}
 	_ = os.RemoveAll(old)
 	_ = cat.c.SetSetting("store_synced", fmt.Sprint(time.Now().Unix()))
-	return cat.Load()
+	return nil
 }
 
 // extractApps keeps only apps/<id>/... from the GitHub tarball.
@@ -281,6 +294,7 @@ func (cat *Catalog) Load() error {
 	apps := map[string]*StoreApp{}
 	cat.loadDir(apps, cat.runtipiDir(), "runtipi")
 	cat.loadDir(apps, cat.builtinDir(), "zeroos")
+	cat.loadCasa(apps) // only what the others lack
 	cat.mu.Lock()
 	cat.apps = apps
 	cat.mu.Unlock()
@@ -341,6 +355,7 @@ func (cat *Catalog) loadDir(apps map[string]*StoreApp, root, catalog string) {
 			a.SharePort, a.SharingNote = rc.SharePort, rc.SharingNote
 		}
 		a.UsesDocker = plan.usesDockerSocket()
+		a.images = plan.imageRepos()
 		if o, ok := cat.over[a.ID]; ok && o.Name != "" {
 			a.Name = o.Name
 		}
@@ -441,7 +456,7 @@ func (cat *Catalog) Downloaded() bool {
 	cat.mu.RLock()
 	defer cat.mu.RUnlock()
 	for _, a := range cat.apps {
-		if a.Catalog != "zeroos" {
+		if a.Catalog == "runtipi" {
 			return true
 		}
 	}
@@ -470,6 +485,9 @@ func (cat *Catalog) LogoPath(id string) string {
 	a, ok := cat.Get(id)
 	if !ok {
 		return ""
+	}
+	if a.Catalog == "casaos" {
+		return cat.casaIcon(id)
 	}
 	p := filepath.Join(a.dir, "metadata", "logo.jpg")
 	if _, err := os.Stat(p); err != nil {

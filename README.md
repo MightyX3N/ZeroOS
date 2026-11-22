@@ -5,7 +5,7 @@ ZeroOS turns a mini PC running plain Debian into a friendly home server. You get
 It is not an operating system and not a NAS. It is one small program that runs on top of Debian and uses Docker underneath, so you never have to.
 
 - **A desktop in the browser.** Apps are icons; they open in windows. On a phone it becomes a home screen.
-- **A store that fills itself.** Apps come from the [Runtipi app store](https://github.com/runtipi/runtipi-appstore) catalog and run unchanged. No ports, paths or YAML to fill in.
+- **A store that fills itself.** Apps come from the [Runtipi app store](https://github.com/runtipi/runtipi-appstore) and the [CasaOS app store](https://github.com/IceWhaleTech/CasaOS-AppStore), each app once. No ports, paths or YAML to fill in.
 - **Updates you can undo.** An app stays on its version until you update it. An update first keeps a copy of the app's own data; a new version that doesn't start is put back by itself, and any update can be undone for a week. Apps published under a moving name like `:latest` are checked for newer builds too.
 - **Your own apps.** Paste a `docker-compose.yml` and it becomes an app like the ones from the Store. ZeroOS moves the page to a free port, keeps volumes in the app's folder, asks where other folders should be, and runs the rest as written.
 - **Backups to your NAS.** Every night (or when you say so) each app's own data and settings are copied to a folder on the NAS. A backup can be put back into the app, with a week to undo that, or used to bring an app back after it was removed or the mini PC was set up again.
@@ -76,7 +76,7 @@ The web UI in `web/static` is plain HTML, CSS and JavaScript and is built into t
 
 ## Thanks
 
-- App catalog: [runtipi/runtipi-appstore](https://github.com/runtipi/runtipi-appstore) (GPL-3.0)
+- App catalogs: [runtipi/runtipi-appstore](https://github.com/runtipi/runtipi-appstore) (GPL-3.0) and [IceWhaleTech/CasaOS-AppStore](https://github.com/IceWhaleTech/CasaOS-AppStore) (Apache-2.0), both downloaded when ZeroOS runs, not shipped with it
 - Korie: [MightyX3N/Korie](https://github.com/MightyX3N/Korie), run from its official image
 - Pterodactyl: [panel](https://github.com/pterodactyl/panel) and [Wings](https://github.com/pterodactyl/wings) (MIT), run from their official images
 - Tunnels: playit.gg's official agent, [playit-cloud/playit-agent](https://github.com/playit-cloud/playit-agent) (BSD-2-Clause)

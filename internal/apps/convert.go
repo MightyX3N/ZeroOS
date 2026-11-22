@@ -116,6 +116,27 @@ func (p *composePlan) hostPaths() []string {
 	return out
 }
 
+// imageRepos lists what the app runs, without registry and tag.
+func (p *composePlan) imageRepos() []string {
+	var out []string
+	if p.yamlDoc != nil {
+		for _, s := range p.yamlDoc["services"].(map[string]any) {
+			if sm, ok := s.(map[string]any); ok {
+				if img, _ := sm["image"].(string); img != "" {
+					out = append(out, imageRepo(img))
+				}
+			}
+		}
+		return out
+	}
+	for _, s := range p.services {
+		if s.Image != "" {
+			out = append(out, imageRepo(s.Image))
+		}
+	}
+	return out
+}
+
 func (p *composePlan) usesDockerSocket() bool {
 	for _, hp := range p.hostPaths() {
 		if strings.Contains(hp, "docker.sock") {
@@ -427,6 +448,23 @@ func (p *composePlan) buildCustom(in buildInput, doc map[string]any) map[string]
 		}
 		delete(svc, "build")
 		svc["restart"] = p.restartPolicy(in)
+		// A store app written for several kinds of computer names devices this one may lack.
+		if devs, ok := svc["devices"].([]any); ok && in.Custom.Casa {
+			var kept []any
+			for _, d := range devs {
+				if s, ok := d.(string); ok {
+					if _, err := os.Stat(strings.SplitN(s, ":", 2)[0]); err != nil {
+						continue
+					}
+				}
+				kept = append(kept, d)
+			}
+			if len(kept) == 0 {
+				delete(svc, "devices")
+			} else {
+				svc["devices"] = kept
+			}
+		}
 		// labels: keep the file's own, add ours
 		switch l := svc["labels"].(type) {
 		case map[string]any:

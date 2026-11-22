@@ -189,11 +189,12 @@ async function storeApp(w, id, seq) {
     <p style="font-size:1.05em">${esc(a.shortDesc)}</p>
     ${a.usesDocker ? '<div class="note warn">This app controls Docker on the whole mini PC (it needs that to do its job), so only the owner can install it.</div>' : ''}
     <div class="desc">${esc(about)}</div>
+    ${a.catalog === 'casaos' ? '<p class="muted">From the CasaOS app store, adapted by ZeroOS so it installs the same way as the rest.</p>' : ''}
     ${a.website ? `<p class="muted">Website: <a href="${esc(a.website)}" target="_blank" rel="noopener noreferrer">${esc(a.website)}</a></p>` : ''}`;
   pane.scrollTop = 0;
   $('[data-back]', pane).onclick = () => { pane.innerHTML = ''; w.list(); };
   const ob = $('[data-open]', pane); if (ob) ob.onclick = () => openApp(inst.id);
-  const gb = $('[data-get]', pane); if (gb) gb.onclick = () => installWizard(a, r.gpuAvailable);
+  const gb = $('[data-get]', pane); if (gb) gb.onclick = () => installWizard(a, r.gpuAvailable && a.catalog !== 'casaos');
   const upb = $('[data-upd]', pane); if (upb) upb.onclick = () => updateApp(inst.id);
 }
 

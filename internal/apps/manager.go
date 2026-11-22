@@ -256,6 +256,9 @@ func (m *Manager) Install(req InstallRequest, userID int64) (*Job, error) {
 		p, ok := req.Folders[need.Key]
 		if !ok || p.Root == "" {
 			p = Picked{Root: "local", Path: "/" + sa.ID}
+			if sa.Catalog == "casaos" { // these can ask for several folders; each gets its own
+				p.Path += "/" + strings.Trim(filepath.Base(need.Key), "/")
+			}
 		}
 		if _, err := m.st.Resolve(p.Root, p.Path); err != nil {
 			return nil, err
@@ -277,6 +280,11 @@ func (m *Manager) Install(req InstallRequest, userID int64) (*Job, error) {
 	port, err := m.freePort()
 	if err != nil {
 		return nil, err
+	}
+	if sa.fixedPort > 0 {
+		if port = sa.fixedPort; m.portTaken(port, id) {
+			return nil, fmt.Errorf("%s uses port %d for its page, which is already the page of another app.", sa.Name, port)
+		}
 	}
 	settings, _ := json.Marshal(AppSettings{Env: env, GPU: req.GPU, Desired: "running"})
 	fj, _ := json.Marshal(folders)
@@ -365,7 +373,12 @@ func (m *Manager) runInstall(job *Job, id string) {
 	a, _ := m.Get(id)
 	if a != nil && !a.NoGUI {
 		job.step("Waiting for it to answer")
-		if !waitHTTP(a.LocalURL(), 4*time.Minute) {
+		switch m.waitUp(a, 4*time.Minute) {
+		case upCrashing:
+			_ = m.compose(id, job, "logs", "--no-color", "--tail", "12")
+			fail(errors.New("It keeps stopping right after it starts, so it can't be used. The details below say why."))
+			return
+		case upSlow:
 			job.log("It's still starting up; it will appear on the desktop when ready.")
 		}
 	}
@@ -458,7 +471,7 @@ func (m *Manager) envFile(a *App, dataDir, shared string) string {
 		"ROOT_FOLDER_HOST": shared, "APP_DOMAIN": fmt.Sprintf("%s:%d", ip, a.Port), "LOCAL_DOMAIN": "local",
 		"APP_PROTOCOL": "http", "APP_EXPOSED": "false", "APP_HOST": ip, "INTERNAL_IP": ip,
 		"NETWORK_INTERFACE": defaultIface(), "TIPI_UID": "1000", "TIPI_GID": "1000", "UID": "1000", "GID": "1000",
-		"PUID": "1000", "PGID": "1000", "TIPI_VERSION": "4.5.0", "HOST_NAME": hostName(),
+		"PUID": "1000", "PGID": "1000", "TIPI_VERSION": "4.5.0", "HOST_NAME": hostName(), "HOSTNAME": hostName(),
 	}
 	for k, v := range a.Settings.Env {
 		vals[k] = v
@@ -537,6 +550,33 @@ func waitHTTP(url string, max time.Duration) bool {
 		time.Sleep(2 * time.Second)
 	}
 	return false
+}
+
+const (
+	upOK = iota
+	upSlow
+	upCrashing
+)
+
+// waitUp waits for a newly installed app's page. An app whose parts keep
+// stopping for a minute and a half on end isn't starting up, it is broken;
+// one that just takes long is left to finish on its own.
+func (m *Manager) waitUp(a *App, max time.Duration) int {
+	end, broken := time.Now().Add(max), 0
+	for time.Now().Before(end) {
+		if waitHTTP(a.LocalURL(), time.Second) {
+			return upOK
+		}
+		if b, total := brokenParts(a.ID); total > 0 && b > 0 {
+			if broken++; broken >= 30 {
+				return upCrashing
+			}
+		} else {
+			broken = 0
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return upSlow
 }
 
 // --- lifecycle -------------------------------------------------------------

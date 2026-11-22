@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -70,6 +71,10 @@ func main() {
 		doctor(cfg)
 	case "update":
 		err = update()
+	case "verify":
+		err = verify(cfg, args[1:])
+	case "verify-merge":
+		err = verifyMerge(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(core.Version)
 	case "help", "--help", "-h":
@@ -390,4 +395,157 @@ func fetch(c *http.Client, url string) ([]byte, error) {
 		return nil, fmt.Errorf("download failed (HTTP %d)", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// verify runs the install test behind the Verified badge. It is meant for a
+// throwaway machine (ZeroOS's GitHub workflow): it installs and removes apps.
+//
+//	zeroos verify --out results.json [--shard 0/10] [--only a,b] [--limit 5] [--prune]
+func verify(cfg core.Config, args []string) error {
+	out, only, shard, of, limit, prune := "verify-results.json", []string(nil), 0, 1, 0, false
+	for i := 0; i < len(args); i++ {
+		next := func() string {
+			if i+1 < len(args) {
+				i++
+				return args[i]
+			}
+			return ""
+		}
+		switch args[i] {
+		case "--out":
+			out = next()
+		case "--only":
+			only = strings.Split(next(), ",")
+		case "--shard":
+			if _, err := fmt.Sscanf(next(), "%d/%d", &shard, &of); err != nil || of < 1 || shard < 0 || shard >= of {
+				return errors.New("--shard wants something like 0/10")
+			}
+		case "--limit":
+			fmt.Sscan(next(), &limit)
+		case "--prune":
+			prune = true
+		default:
+			return errors.New("unknown option " + args[i])
+		}
+	}
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		return errors.New("Docker isn't running here, so nothing can be tested")
+	}
+	c, err := core.Open(cfg)
+	if err != nil {
+		return err
+	}
+	cat := apps.NewCatalog(c)
+	if err := cat.Sync(); err != nil {
+		return err
+	}
+	mgr := apps.NewManager(c, cat, storage.New(c))
+	ids := cat.VerifyList(shard, of, only)
+	if limit > 0 && len(ids) > limit {
+		ids = ids[:limit]
+	}
+	fmt.Printf("Testing %d of %d store apps\n", len(ids), cat.Count())
+	results := []apps.VerifyResult{}
+	save := func() error {
+		b, _ := json.MarshalIndent(map[string]any{"at": time.Now().Unix(), "zeroos": core.Version, "results": results}, "", "  ")
+		return os.WriteFile(out, b, 0o644)
+	}
+	passed := 0
+	for i, id := range ids {
+		r := mgr.Verify(id)
+		results = append(results, r)
+		mark := "✗"
+		if r.OK {
+			mark = "✓"
+			passed++
+		} else if r.Skipped {
+			mark = "–"
+		}
+		fmt.Printf("[%d/%d] %s %s (%ds) %s\n", i+1, len(ids), mark, r.ID, r.Seconds, r.Why)
+		if err := save(); err != nil {
+			return err
+		}
+		if prune { // a test machine's disk is small
+			_ = exec.Command("docker", "system", "prune", "-af", "--volumes").Run()
+		}
+	}
+	fmt.Printf("%d of %d passed\n", passed, len(ids))
+	return save()
+}
+
+// verifyMerge folds result files into the published list.
+//
+//	zeroos verify-merge --prev verified.json --out verified.json --report report.md results-*.json
+func verifyMerge(args []string) error {
+	prevPath, out, report := "", "verified.json", ""
+	var files []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--prev", "--out", "--report":
+			if i+1 >= len(args) {
+				return errors.New(args[i] + " wants a file")
+			}
+			switch args[i] {
+			case "--prev":
+				prevPath = args[i+1]
+			case "--out":
+				out = args[i+1]
+			default:
+				report = args[i+1]
+			}
+			i++
+		default:
+			files = append(files, args[i])
+		}
+	}
+	var prev apps.VerifiedFile
+	if b, err := os.ReadFile(prevPath); err == nil {
+		_ = json.Unmarshal(b, &prev)
+	}
+	var all []apps.VerifyResult
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		var doc struct {
+			Results []apps.VerifyResult `json:"results"`
+		}
+		if err := json.Unmarshal(b, &doc); err != nil {
+			return fmt.Errorf("%s: %w", f, err)
+		}
+		all = append(all, doc.Results...)
+	}
+	if len(all) == 0 {
+		return errors.New("no results to merge")
+	}
+	merged := apps.MergeVerified(prev, all, time.Now().Unix())
+	b, _ := json.MarshalIndent(merged, "", " ")
+	if err := os.WriteFile(out, b, 0o644); err != nil {
+		return err
+	}
+	passed := 0
+	var failed []string
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	for _, r := range all {
+		if r.OK {
+			passed++
+			continue
+		}
+		if r.Skipped {
+			r.Catalog += ", not tested"
+		}
+		why := strings.ReplaceAll(r.Why, "|", "/")
+		if len(why) > 300 {
+			why = why[:300] + "…"
+		}
+		failed = append(failed, fmt.Sprintf("| %s | %s | %s | %s |", r.ID, r.Catalog, r.Version, strings.ReplaceAll(why, "\n", " ")))
+	}
+	fmt.Printf("%d tested, %d passed; %d apps are verified now\n", len(all), passed, len(merged.Apps))
+	if report != "" {
+		text := fmt.Sprintf("# Install test\n\n%s: %d apps tested, %d passed. %d apps are verified now.\n\n## Did not pass\n\n| App | Catalog | Version | Why |\n|---|---|---|---|\n%s\n",
+			time.Now().UTC().Format("2 Jan 2006 15:04 UTC"), len(all), passed, len(merged.Apps), strings.Join(failed, "\n"))
+		return os.WriteFile(report, []byte(text), 0o644)
+	}
+	return nil
 }

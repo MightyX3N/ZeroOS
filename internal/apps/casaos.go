@@ -517,7 +517,7 @@ func (cat *Catalog) loadCasa(apps map[string]*StoreApp) {
 		}
 		a := &StoreApp{ID: c.ID, Catalog: "casaos", Name: c.Name, ShortDesc: c.ShortDesc, Description: c.Description, Categories: c.Categories,
 			Version: c.Version, Website: c.Website, Source: c.Source, NoGUI: c.NoGUI, URLSuffix: c.URLSuffix, Form: c.FormFields, Folders: []FolderNeed{},
-			UsesDocker: plan.usesDockerSocket(), dir: dir, images: c.Images}
+			UsesDocker: plan.usesDockerSocket(), dir: dir, images: c.Images, Verified: cat.verified[c.ID]}
 		if c.Custom.Page.Kind == "fixed" {
 			a.fixedPort = c.Custom.Page.Port
 		}

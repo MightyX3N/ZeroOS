@@ -1,0 +1,96 @@
+# The install test behind the "Verified" badge in the Store.
+#
+# Every app in the Store is installed by ZeroOS itself on a fresh machine, with
+# the answers a person gives by just pressing Install. An app passes when every
+# part of it keeps running and its page answers. The apps that passed are
+# published on the "verified" branch, which every ZeroOS downloads along with
+# the catalogs. Runs every Monday, or by hand from the Actions tab.
+name: Install test
+on:
+  schedule:
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Only these apps (ids, comma-separated). Empty tests every app.'
+        required: false
+        default: ''
+permissions:
+  contents: write
+concurrency:
+  group: install-test
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.only == '' || matrix.shard == 0
+      - uses: actions/setup-go@v5
+        if: inputs.only == '' || matrix.shard == 0
+        with:
+          go-version-file: go.mod
+      - name: Make room
+        if: inputs.only == '' || matrix.shard == 0
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+      - name: Build ZeroOS
+        if: inputs.only == '' || matrix.shard == 0
+        run: CGO_ENABLED=0 go build -o zeroos ./cmd/zeroos
+      - name: Install and check the apps
+        if: inputs.only == '' || matrix.shard == 0
+        env:
+          ONLY: ${{ inputs.only }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          export ZEROOS_DATA=/tmp/zeroos-test/data ZEROOS_MOUNTS=/tmp/zeroos-test/mnt ZEROOS_SOCKET=/tmp/zeroos-test/zeroos.sock
+          sudo mkdir -p /tmp/zeroos-test
+          if [ -n "$ONLY" ]; then
+            sudo -E ./zeroos verify --only "$ONLY" --prune --out "results-$SHARD.json"
+          else
+            sudo -E ./zeroos verify --shard "$SHARD/12" --prune --out "results-$SHARD.json"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always() && (inputs.only == '' || matrix.shard == 0)
+        with:
+          name: results-${{ matrix.shard }}
+          path: results-*.json
+          if-no-files-found: ignore
+  publish:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+          pattern: results-*
+          merge-multiple: true
+      - name: Put the results together
+        run: |
+          ls results/*.json >/dev/null 2>&1 || { echo "No results this time; the list stays as it is."; exit 0; }
+          CGO_ENABLED=0 go build -o zeroos ./cmd/zeroos
+          git fetch -q origin verified 2>/dev/null && git show origin/verified:verified.json > prev.json || echo '{}' > prev.json
+          mkdir pub
+          ./zeroos verify-merge --prev prev.json --out pub/verified.json --report pub/README.md results/*.json
+          cat pub/README.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish the list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f pub/verified.json ] || exit 0
+          cd pub
+          git init -q -b verified
+          git config user.name "ZeroOS install test"
+          git config user.email "actions@users.noreply.github.com"
+          git add .
+          git commit -q -m "Install test results"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" verified

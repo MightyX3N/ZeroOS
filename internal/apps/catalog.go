@@ -105,11 +105,6 @@ type override struct {
 
 func NewCatalog(c *core.Core) *Catalog {
 	cat := &Catalog{c: c, apps: map[string]*StoreApp{}, verified: map[string]bool{}, over: map[string]override{}}
-	var v []string
-	_ = json.Unmarshal(verifiedJSON, &v)
-	for _, id := range v {
-		cat.verified[id] = true
-	}
 	_ = json.Unmarshal(overridesJSON, &cat.over)
 	cat.unpackBuiltin()
 	_ = cat.Load()
@@ -166,6 +161,9 @@ func (cat *Catalog) Sync() error {
 	defer func() { cat.mu.Lock(); cat.syncing = false; cat.mu.Unlock() }()
 	err := cat.syncRuntipi()
 	if err2 := cat.syncCasa(); err2 != nil {
+		log.Printf("store: %v", err2)
+	}
+	if err2 := cat.syncVerified(); err2 != nil {
 		log.Printf("store: %v", err2)
 	}
 	_ = cat.Load()
@@ -292,6 +290,7 @@ type runtipiConfig struct {
 // apps, which win when both have the same app.
 func (cat *Catalog) Load() error {
 	apps := map[string]*StoreApp{}
+	cat.verified = cat.loadVerified()
 	cat.loadDir(apps, cat.runtipiDir(), "runtipi")
 	cat.loadDir(apps, cat.builtinDir(), "zeroos")
 	cat.loadCasa(apps) // only what the others lack

@@ -165,6 +165,7 @@ async function storeList(w, seq) {
   if (!$('[data-q]', pane)) {
     pane.innerHTML = `<div class="row"><div class="grow" style="position:relative;flex:1 1 18em"><input type="search" data-q data-keep placeholder="Search, for example photos, passwords or Minecraft" aria-label="Search the store" style="padding-left:2.4em"><span style="position:absolute;left:.8em;top:.85em;color:var(--mute)">${SVG.search}</span></div>
       <label class="check"><input type="checkbox" data-v data-keep>Verified only</label></div><p class="muted" data-info></p><div class="cards" data-cards></div>`;
+    $('[data-q]', pane).value = st.q; $('[data-v]', pane).checked = !!st.verified;   // coming back from an app: show what the list is filtered by
     $('[data-q]', pane).oninput = (e) => { clearTimeout(w.qt); w.qt = setTimeout(() => { st.q = e.target.value; w.list(); }, 200); };
     $('[data-v]', pane).onchange = (e) => { st.verified = e.target.checked; w.list(); };
   }

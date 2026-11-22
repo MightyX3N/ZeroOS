@@ -409,6 +409,7 @@ func (p *composePlan) buildFromYAML(in buildInput) map[string]any {
 	}
 	delete(doc, "networks")
 	delete(doc, "version")
+	delete(doc, "x-runtipi")
 	services := doc["services"].(map[string]any)
 	for _, s := range services {
 		svc, ok := s.(map[string]any)
@@ -419,6 +420,26 @@ func (p *composePlan) buildFromYAML(in buildInput) map[string]any {
 		delete(svc, "container_name")
 		svc["labels"] = map[string]any{"zeroos.app": in.AppID}
 		svc["restart"] = p.restartPolicy(in)
+		// Runtipi's newer catalog format says where the app's page is in an
+		// "x-runtipi" part: that port goes on the port ZeroOS picked.
+		if x, ok := svc["x-runtipi"].(map[string]any); ok {
+			main, _ := x["is_main"].(bool)
+			if port := fmt.Sprint(x["internal_port"]); main && x["internal_port"] != nil && port != "" && in.Port > 0 {
+				if nm, _ := svc["network_mode"].(string); nm != "host" {
+					ports, _ := svc["ports"].([]any)
+					svc["ports"] = append([]any{fmt.Sprintf("%d:%s", in.Port, port)}, ports...)
+				}
+			}
+			if main && in.GPU {
+				devs, _ := svc["devices"].([]any)
+				svc["devices"] = append(devs, "/dev/dri:/dev/dri")
+				if in.RenderGID > 0 {
+					groups, _ := svc["group_add"].([]any)
+					svc["group_add"] = append(groups, fmt.Sprint(in.RenderGID))
+				}
+			}
+		}
+		delete(svc, "x-runtipi")
 		if vols, ok := svc["volumes"].([]any); ok {
 			for i, v := range vols {
 				if str, ok := v.(string); ok {

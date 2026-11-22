@@ -448,6 +448,10 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	for _, d := range plan.dirsToCreate(in) {
 		if err := os.MkdirAll(d, 0o755); err == nil && firstTime && !own {
 			_ = os.Chown(d, storage.AppUID, storage.AppGID)
+		} else if err == nil && firstTime && in.Custom.Casa && strings.HasPrefix(d, dataDir+"/") {
+			// CasaOS apps count on their own folders being writable by whatever
+			// user the app runs as, the way CasaOS makes them.
+			_ = os.Chmod(d, 0o777)
 		}
 	}
 	if firstTime && !own {

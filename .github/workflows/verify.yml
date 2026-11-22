@@ -38,6 +38,14 @@ jobs:
       - name: Make room
         if: inputs.only == '' || matrix.shard == 0
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+      - name: Free the DNS port
+        if: inputs.only == '' || matrix.shard == 0
+        # The test machine's own name lookups sit on port 53, which ad blockers like AdGuard and Pi-hole need, as on a real mini PC.
+        run: |
+          sudo systemctl disable --now systemd-resolved || true
+          sudo rm -f /etc/resolv.conf
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | sudo tee /etc/resolv.conf >/dev/null
+          sudo systemctl restart docker
       - name: Build ZeroOS
         if: inputs.only == '' || matrix.shard == 0
         run: CGO_ENABLED=0 go build -o zeroos ./cmd/zeroos

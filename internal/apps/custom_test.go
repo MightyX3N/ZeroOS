@@ -137,3 +137,24 @@ func TestBuildCustom(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// Runtipi's newer catalog entries are plain compose files with an "x-runtipi" part.
+func TestBuildRuntipiYAML(t *testing.T) {
+	dir := t.TempDir()
+	yml := "services:\n  bazarr:\n    image: lscr.io/linuxserver/bazarr:1.6.2\n    ports:\n      - 9000:9000\n    volumes:\n      - ${APP_DATA_DIR}/data:/config\n    x-runtipi:\n      internal_port: 6767\n      is_main: true\n  db:\n    image: postgres:16\nx-runtipi:\n  schema_version: 2\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := loadCompose(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := plan.Build(buildInput{AppID: "bazarr", DataDir: "/ssd/bazarr/data", Port: 20003})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "20003:6767") || !strings.Contains(s, "9000:9000") || strings.Contains(s, "x-runtipi") {
+		t.Fatalf("page port not published, or x-runtipi left in:\n%s", s)
+	}
+}

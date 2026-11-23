@@ -10,7 +10,7 @@ It is not an operating system and not a NAS. It is one small program that runs o
 - **Verified apps.** Every week ZeroOS installs each Store app on a fresh machine and checks that it starts and its page answers ([the install test](.github/workflows/verify.yml)). The ones that pass carry a Verified badge.
 - **Your own apps.** Paste a `docker-compose.yml` and it becomes an app like the ones from the Store. ZeroOS moves the page to a free port, keeps volumes in the app's folder, asks where other folders should be, and runs the rest as written.
 - **Backups to your NAS.** Every night (or when you say so) each app's own data and settings are copied to a folder on the NAS. A backup can be put back into the app, with a week to undo that, or used to bring an app back after it was removed or the mini PC was set up again.
-- **Apps that need setting up are set up for you.** A few apps come with ZeroOS itself (`internal/apps/builtin`), in the same format plus a readable `setup.sh`. Pterodactyl is the first: after install it has your account, this computer as its node, ports for servers and a working Wings. Korie is there too.
+- **Apps that need setting up are set up for you.** A few apps come with ZeroOS itself (`internal/apps/builtin`), in the same format plus a readable `setup.sh`. Pterodactyl is the first: after install it has your account, this computer as its node, ports for servers and a working Wings.
 - **Your NAS for big files.** Add an SMB share once, then pick folders with a folder picker. Each app's own data stays on the mini PC's SSD. If the NAS goes offline, apps that use it wait and start again by themselves.
 - **Share online.** Link a playit.gg account and flip a switch per app, or share any port (for game servers).
 - **Users and permissions.** Every action is a permission. Each person only sees the apps shared with them.
@@ -78,7 +78,6 @@ The web UI in `web/static` is plain HTML, CSS and JavaScript and is built into t
 ## Thanks
 
 - App catalogs: [runtipi/runtipi-appstore](https://github.com/runtipi/runtipi-appstore) (GPL-3.0) and [IceWhaleTech/CasaOS-AppStore](https://github.com/IceWhaleTech/CasaOS-AppStore) (Apache-2.0), both downloaded when ZeroOS runs, not shipped with it
-- Korie: [MightyX3N/Korie](https://github.com/MightyX3N/Korie), run from its official image
 - Pterodactyl: [panel](https://github.com/pterodactyl/panel) and [Wings](https://github.com/pterodactyl/wings) (MIT), run from their official images
 - Tunnels: playit.gg's official agent, [playit-cloud/playit-agent](https://github.com/playit-cloud/playit-agent) (BSD-2-Clause)
 

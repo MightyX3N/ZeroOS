@@ -10,12 +10,12 @@ import (
 
 func TestParseImage(t *testing.T) {
 	for in, want := range map[string]imageRef{
-		"redis":                          {"registry-1.docker.io", "library/redis", "latest"},
-		"redis:7-alpine":                 {"registry-1.docker.io", "library/redis", "7-alpine"},
-		"jellyfin/jellyfin:10.9":         {"registry-1.docker.io", "jellyfin/jellyfin", "10.9"},
-		"ghcr.io/mightyx3n/korie:latest": {"ghcr.io", "mightyx3n/korie", "latest"},
-		"ghcr.io/pterodactyl/panel":      {"ghcr.io", "pterodactyl/panel", "latest"},
-		"localhost:5000/me/app:dev":      {"localhost:5000", "me/app", "dev"},
+		"redis":                        {"registry-1.docker.io", "library/redis", "latest"},
+		"redis:7-alpine":               {"registry-1.docker.io", "library/redis", "7-alpine"},
+		"jellyfin/jellyfin:10.9":       {"registry-1.docker.io", "jellyfin/jellyfin", "10.9"},
+		"ghcr.io/someone/thing:latest": {"ghcr.io", "someone/thing", "latest"},
+		"ghcr.io/pterodactyl/panel":    {"ghcr.io", "pterodactyl/panel", "latest"},
+		"localhost:5000/me/app:dev":    {"localhost:5000", "me/app", "dev"},
 	} {
 		got, ok := parseImage(in)
 		if !ok || got != want {

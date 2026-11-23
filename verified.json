@@ -1,0 +1,1205 @@
+{
+ "at": 1795433538,
+ "apps": {
+  "2fauth": {
+   "version": "9.0.2",
+   "at": 1795433538
+  },
+  "activepieces": {
+   "version": "0.93.0",
+   "at": 1795433538
+  },
+  "actual-budget": {
+   "version": "26.11.0",
+   "at": 1795433538
+  },
+  "adguard": {
+   "version": "v1.0.0",
+   "at": 1795433538
+  },
+  "adminer": {
+   "version": "5.4.2",
+   "at": 1795433538
+  },
+  "affine": {
+   "version": "stable",
+   "at": 1795433538
+  },
+  "albyhub": {
+   "version": "1.22.2",
+   "at": 1795433538
+  },
+  "alist": {
+   "version": "3.40.0",
+   "at": 1795433538
+  },
+  "alist-sync": {
+   "version": "1.1.5",
+   "at": 1795433538
+  },
+  "anse": {
+   "version": "1.1.11",
+   "at": 1795433538
+  },
+  "anythingllm": {
+   "version": "1.14.2",
+   "at": 1795433538
+  },
+  "archivebox": {
+   "version": "0.9.77",
+   "at": 1795433538
+  },
+  "atuin": {
+   "version": "18.25.1",
+   "at": 1795433538
+  },
+  "audiobookshelf": {
+   "version": "2.38.0",
+   "at": 1795433538
+  },
+  "authentik-1": {
+   "version": "2026.8.6",
+   "at": 1795433538
+  },
+  "autobrr": {
+   "version": "v1.91.1",
+   "at": 1795433538
+  },
+  "baikal": {
+   "version": "0.13.0",
+   "at": 1795433538
+  },
+  "barrage": {
+   "version": "0.3.0",
+   "at": 1795433538
+  },
+  "bazarr": {
+   "version": "1.6.2",
+   "at": 1795433538
+  },
+  "beaverhabittracker": {
+   "version": "0.9.1",
+   "at": 1795433538
+  },
+  "bentopdf": {
+   "version": "2.8.8",
+   "at": 1795433538
+  },
+  "beszel": {
+   "version": "0.21.2",
+   "at": 1795433538
+  },
+  "bewcloud": {
+   "version": "v1.9.2",
+   "at": 1795433538
+  },
+  "bitcoind": {
+   "version": "28.0",
+   "at": 1795433538
+  },
+  "bitmagnet": {
+   "version": "v0.10.1",
+   "at": 1795433538
+  },
+  "blinko": {
+   "version": "1.8.7",
+   "at": 1795433538
+  },
+  "bookstack": {
+   "version": "26.09.20260929",
+   "at": 1795433538
+  },
+  "calcom": {
+   "version": "v6.2.0",
+   "at": 1795433538
+  },
+  "calibre-web": {
+   "version": "0.6.27",
+   "at": 1795433538
+  },
+  "changedetection": {
+   "version": "0.70.4",
+   "at": 1795433538
+  },
+  "chatbot-ui": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "chatgpt-next-web": {
+   "version": "2.16.1",
+   "at": 1795433538
+  },
+  "cheshire-cat-ai": {
+   "version": "1.9.2",
+   "at": 1795433538
+  },
+  "cloudbeaver": {
+   "version": "26.0.5",
+   "at": 1795433538
+  },
+  "cloudflare-ddns": {
+   "version": "3.3.0",
+   "at": 1795433538
+  },
+  "cloudflared": {
+   "version": "2026.11.1",
+   "at": 1795433538
+  },
+  "clumoove": {
+   "version": "0.19.0",
+   "at": 1795433538
+  },
+  "code-server": {
+   "version": "4.146.0",
+   "at": 1795433538
+  },
+  "codex-docs": {
+   "version": "v2.3",
+   "at": 1795433538
+  },
+  "convertx": {
+   "version": "0.17.0",
+   "at": 1795433538
+  },
+  "copyparty": {
+   "version": "1.20.13",
+   "at": 1795433538
+  },
+  "crafty": {
+   "version": "4.10.4",
+   "at": 1795433538
+  },
+  "ctfd": {
+   "version": "3.8.9",
+   "at": 1795433538
+  },
+  "cup": {
+   "version": "v3.6.0",
+   "at": 1795433538
+  },
+  "cyberchef": {
+   "version": "11.6.0",
+   "at": 1795433538
+  },
+  "dailytxt": {
+   "version": "2.7.0",
+   "at": 1795433538
+  },
+  "dashdot": {
+   "version": "6.3.4",
+   "at": 1795433538
+  },
+  "dashy": {
+   "version": "4.9.20",
+   "at": 1795433538
+  },
+  "databag": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "ddns-go": {
+   "version": "6.17.1",
+   "at": 1795433538
+  },
+  "ddns-updater": {
+   "version": "v2.10.0",
+   "at": 1795433538
+  },
+  "deemix": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "deluge": {
+   "version": "18.04.1",
+   "at": 1795433538
+  },
+  "dispatcharr": {
+   "version": "0.29.0",
+   "at": 1795433538
+  },
+  "dockge": {
+   "version": "1.5.0",
+   "at": 1795433538
+  },
+  "docmost": {
+   "version": "0.98.0",
+   "at": 1795433538
+  },
+  "dokuwiki": {
+   "version": "2024-02-06b-ls250",
+   "at": 1795433538
+  },
+  "downtify": {
+   "version": "2.7.0",
+   "at": 1795433538
+  },
+  "dozzle": {
+   "version": "v11.5.0",
+   "at": 1795433538
+  },
+  "drawio": {
+   "version": "32.7.4",
+   "at": 1795433538
+  },
+  "dsh-harness": {
+   "version": "0.1.0",
+   "at": 1795433538
+  },
+  "duckdns": {
+   "version": "b14c520a-ls8",
+   "at": 1795433538
+  },
+  "duplicati": {
+   "version": "2.4.1",
+   "at": 1795433538
+  },
+  "email-oauth2-proxy": {
+   "version": "2026.01.06",
+   "at": 1795433538
+  },
+  "emby": {
+   "version": "4.10.2",
+   "at": 1795433538
+  },
+  "embystat": {
+   "version": "0.2.0",
+   "at": 1795433538
+  },
+  "emqx": {
+   "version": "6.3.3",
+   "at": 1795433538
+  },
+  "emulatorjs": {
+   "version": "1.9.2",
+   "at": 1795433538
+  },
+  "esphome": {
+   "version": "2026.11.0",
+   "at": 1795433538
+  },
+  "etherpad": {
+   "version": "3.1.0",
+   "at": 1795433538
+  },
+  "excalidraw": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "filebrowser-quantum": {
+   "version": "2.0-stable",
+   "at": 1795433538
+  },
+  "filedrop": {
+   "version": "1.0.1",
+   "at": 1795433538
+  },
+  "filestash": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "firefly": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "firefly-iii": {
+   "version": "version-6",
+   "at": 1795433538
+  },
+  "firefly-iii-data-importer": {
+   "version": "version-2",
+   "at": 1795433538
+  },
+  "fireshare": {
+   "version": "1.9.3",
+   "at": 1795433538
+  },
+  "flaresolverr": {
+   "version": "v3.5.2",
+   "at": 1795433538
+  },
+  "flightlog": {
+   "version": "v2.1.15",
+   "at": 1795433538
+  },
+  "forgejo": {
+   "version": "17.0.2",
+   "at": 1795433538
+  },
+  "freshrss": {
+   "version": "1.30.4",
+   "at": 1795433538
+  },
+  "frigate": {
+   "version": "0.17.2",
+   "at": 1795433538
+  },
+  "gandi-livedns": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "ghost": {
+   "version": "5.130.6",
+   "at": 1795433538
+  },
+  "ghost-dev": {
+   "version": "5.130.6",
+   "at": 1795433538
+  },
+  "ghostfolio": {
+   "version": "3.100.0",
+   "at": 1795433538
+  },
+  "gitea": {
+   "version": "28.4.0",
+   "at": 1795433538
+  },
+  "gladys": {
+   "version": "v5.3.4",
+   "at": 1795433538
+  },
+  "glance": {
+   "version": "v0.8.8",
+   "at": 1795433538
+  },
+  "glances": {
+   "version": "4.5.3.2",
+   "at": 1795433538
+  },
+  "gopeed": {
+   "version": "1.9.3",
+   "at": 1795433538
+  },
+  "gotify": {
+   "version": "3.1.1",
+   "at": 1795433538
+  },
+  "gotosocial": {
+   "version": "0.22.3",
+   "at": 1795433538
+  },
+  "grampsweb": {
+   "version": "26.11.3",
+   "at": 1795433538
+  },
+  "grav-2": {
+   "version": "2.2.32",
+   "at": 1795433538
+  },
+  "grist": {
+   "version": "1.7.22",
+   "at": 1795433538
+  },
+  "grocy": {
+   "version": "4.7.1",
+   "at": 1795433538
+  },
+  "guacamole": {
+   "version": "1.6.0",
+   "at": 1795433538
+  },
+  "halo": {
+   "version": "2.27.3",
+   "at": 1795433538
+  },
+  "hammond": {
+   "version": "0.0.24",
+   "at": 1795433538
+  },
+  "handbrake": {
+   "version": "26.3.3",
+   "at": 1795433538
+  },
+  "hedgedoc": {
+   "version": "1.12.0",
+   "at": 1795433538
+  },
+  "heimdall": {
+   "version": "2.8.4",
+   "at": 1795433538
+  },
+  "hello-world": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "hermes": {
+   "version": "0.16.0",
+   "at": 1795433538
+  },
+  "hfs": {
+   "version": "3.3.4",
+   "at": 1795433538
+  },
+  "hoarder": {
+   "version": "0.35.0",
+   "at": 1795433538
+  },
+  "holoplay": {
+   "version": "1.12.3",
+   "at": 1795433538
+  },
+  "homeassistant-1": {
+   "version": "2026.11.2",
+   "at": 1795433538
+  },
+  "homebridge": {
+   "version": "2024-05-02",
+   "at": 1795433538
+  },
+  "homepage": {
+   "version": "v2.8.0",
+   "at": 1795433538
+  },
+  "homer": {
+   "version": "v26.11.4",
+   "at": 1795433538
+  },
+  "immich": {
+   "version": "v3.4.2",
+   "at": 1795433538
+  },
+  "index-tts": {
+   "version": "2.0.0",
+   "at": 1795433538
+  },
+  "it-tools": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "jackett": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "jdownloader2": {
+   "version": "26.3.1",
+   "at": 1795433538
+  },
+  "jellyfin": {
+   "version": "version-12.2ubu2604",
+   "at": 1795433538
+  },
+  "jellyfin-vue": {
+   "version": "unstable",
+   "at": 1795433538
+  },
+  "jellyseerr": {
+   "version": "2.7.3",
+   "at": 1795433538
+  },
+  "jenkins": {
+   "version": "2.569.0",
+   "at": 1795433538
+  },
+  "joplin": {
+   "version": "3.7.6",
+   "at": 1795433538
+  },
+  "kanboard": {
+   "version": "v1.2.58",
+   "at": 1795433538
+  },
+  "kapowarr": {
+   "version": "v1.3.2",
+   "at": 1795433538
+  },
+  "karakeep": {
+   "version": "0.33.2",
+   "at": 1795433538
+  },
+  "kavita": {
+   "version": "0.9.1",
+   "at": 1795433538
+  },
+  "kimai": {
+   "version": "fpm-2.19.1-prod",
+   "at": 1795433538
+  },
+  "koillection": {
+   "version": "1.8.6",
+   "at": 1795433538
+  },
+  "kometa": {
+   "version": "2.5.5",
+   "at": 1795433538
+  },
+  "komga": {
+   "version": "1.30.1",
+   "at": 1795433538
+  },
+  "label-studio": {
+   "version": "1.23.0",
+   "at": 1795433538
+  },
+  "langflow": {
+   "version": "1.9.3",
+   "at": 1795433538
+  },
+  "libredb-studio": {
+   "version": "1.2.0",
+   "at": 1795433538
+  },
+  "librephotos": {
+   "version": "2023w48",
+   "at": 1795433538
+  },
+  "librespeed": {
+   "version": "6.3.1",
+   "at": 1795433538
+  },
+  "libretranslate": {
+   "version": "v1.9.6",
+   "at": 1795433538
+  },
+  "lidarr": {
+   "version": "3.1.6",
+   "at": 1795433538
+  },
+  "lidarr-deemix": {
+   "version": "1.5.2",
+   "at": 1795433538
+  },
+  "linkwarden": {
+   "version": "v2.17.0",
+   "at": 1795433538
+  },
+  "llamacpp": {
+   "version": "1.0.0",
+   "at": 1795433538
+  },
+  "lobe-chat": {
+   "version": "1.143.3",
+   "at": 1795433538
+  },
+  "logseq": {
+   "version": "0.10.10",
+   "at": 1795433538
+  },
+  "logto": {
+   "version": "1.46.0",
+   "at": 1795433538
+  },
+  "lubelogger": {
+   "version": "v1.7.5",
+   "at": 1795433538
+  },
+  "lucky": {
+   "version": "2.27.2",
+   "at": 1795433538
+  },
+  "maintainerr": {
+   "version": "3.33.0",
+   "at": 1795433538
+  },
+  "mariadb": {
+   "version": "11.4.8",
+   "at": 1795433538
+  },
+  "mastodon": {
+   "version": "4.7.6",
+   "at": 1795433538
+  },
+  "matter-server": {
+   "version": "8.1.0",
+   "at": 1795433538
+  },
+  "maybe": {
+   "version": "0.6.0",
+   "at": 1795433538
+  },
+  "medusa": {
+   "version": "1.0.25",
+   "at": 1795433538
+  },
+  "memos": {
+   "version": "26.11.1",
+   "at": 1795433538
+  },
+  "metabase": {
+   "version": "v0.65.6",
+   "at": 1795433538
+  },
+  "metube": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "mind": {
+   "version": "v1.5.2",
+   "at": 1795433538
+  },
+  "minecraft-server": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "mineos-node": {
+   "version": "1.2.2",
+   "at": 1795433538
+  },
+  "minio": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "moneroblock": {
+   "version": "0.1.2",
+   "at": 1795433538
+  },
+  "monerod": {
+   "version": "0.18.3.4",
+   "at": 1795433538
+  },
+  "mongo": {
+   "version": "7.0.48",
+   "at": 1795433538
+  },
+  "mongodb4": {
+   "version": "4.4.22",
+   "at": 1795433538
+  },
+  "monica": {
+   "version": "4.1.2",
+   "at": 1795433538
+  },
+  "moodist": {
+   "version": "v3.1.1",
+   "at": 1795433538
+  },
+  "motioneye": {
+   "version": "0.44.0",
+   "at": 1795433538
+  },
+  "mqttx": {
+   "version": "v1.13.3",
+   "at": 1795433538
+  },
+  "mstream": {
+   "version": "v5.12.2-ls190",
+   "at": 1795433538
+  },
+  "mylar3": {
+   "version": "v0.7.1-ls84",
+   "at": 1795433538
+  },
+  "myspeed": {
+   "version": "1.0.9",
+   "at": 1795433538
+  },
+  "n8n-2": {
+   "version": "2.49.3",
+   "at": 1795433538
+  },
+  "navidrome": {
+   "version": "0.64.2",
+   "at": 1795433538
+  },
+  "netbird": {
+   "version": "0.62.3",
+   "at": 1795433538
+  },
+  "netbootxyz": {
+   "version": "0.7.6",
+   "at": 1795433538
+  },
+  "netdata": {
+   "version": "v2.13.0",
+   "at": 1795433538
+  },
+  "netronome": {
+   "version": "0.13.0",
+   "at": 1795433538
+  },
+  "nextcloud": {
+   "version": "35.0.3",
+   "at": 1795433538
+  },
+  "nextcloud-mini": {
+   "version": "35.0.3",
+   "at": 1795433538
+  },
+  "nextgba": {
+   "version": "0.1.0",
+   "at": 1795433538
+  },
+  "nginx": {
+   "version": "1.31.9",
+   "at": 1795433538
+  },
+  "nginxproxymanager": {
+   "version": "2.13.5",
+   "at": 1795433538
+  },
+  "nocodb": {
+   "version": "2026.10.2",
+   "at": 1795433538
+  },
+  "nodered": {
+   "version": "5.0.10",
+   "at": 1795433538
+  },
+  "ntfy": {
+   "version": "v2.38.1",
+   "at": 1795433538
+  },
+  "nzbfast": {
+   "version": "1.3.1",
+   "at": 1795433538
+  },
+  "nzbget": {
+   "version": "26.1.20260522",
+   "at": 1795433538
+  },
+  "obsidian": {
+   "version": "1.12.7",
+   "at": 1795433538
+  },
+  "obsidian-livesync": {
+   "version": "3.5.3",
+   "at": 1795433538
+  },
+  "octobot": {
+   "version": "2.1.13",
+   "at": 1795433538
+  },
+  "olivetin": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "ollama-cpu": {
+   "version": "0.40.17",
+   "at": 1795433538
+  },
+  "ombi": {
+   "version": "4.53.5",
+   "at": 1795433538
+  },
+  "onedev": {
+   "version": "17.2.2",
+   "at": 1795433538
+  },
+  "open-webui": {
+   "version": "v0.13.4",
+   "at": 1795433538
+  },
+  "openbooks": {
+   "version": "4.5.0",
+   "at": 1795433538
+  },
+  "openhab": {
+   "version": "5.1.4",
+   "at": 1795433538
+  },
+  "openhands": {
+   "version": "0.59.0",
+   "at": 1795433538
+  },
+  "openlist": {
+   "version": "4.2.2",
+   "at": 1795433538
+  },
+  "openspeedtest": {
+   "version": "2.0.6",
+   "at": 1795433538
+  },
+  "opodsync": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "overseerr": {
+   "version": "1.35.0",
+   "at": 1795433538
+  },
+  "owncast": {
+   "version": "0.3.0",
+   "at": 1795433538
+  },
+  "owncloud": {
+   "version": "11.1.0",
+   "at": 1795433538
+  },
+  "pairdrop": {
+   "version": "1.11.2",
+   "at": 1795433538
+  },
+  "pdfding": {
+   "version": "1.7.2",
+   "at": 1795433538
+  },
+  "peanut": {
+   "version": "6.0.0",
+   "at": 1795433538
+  },
+  "penpot": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "petio": {
+   "version": "0.5.5",
+   "at": 1795433538
+  },
+  "photoprism": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "pihole": {
+   "version": "2026.11.0",
+   "at": 1795433538
+  },
+  "pinchflat": {
+   "version": "v2025.6.6",
+   "at": 1795433538
+  },
+  "pingvin-share": {
+   "version": "v2.1.1",
+   "at": 1795433538
+  },
+  "planka": {
+   "version": "1.26.3",
+   "at": 1795433538
+  },
+  "planning-poker": {
+   "version": "1.2.1",
+   "at": 1795433538
+  },
+  "plex": {
+   "version": "1.43.5",
+   "at": 1795433538
+  },
+  "pocketbase": {
+   "version": "0.26.6",
+   "at": 1795433538
+  },
+  "podfetch": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "portainer": {
+   "version": "2.45.4",
+   "at": 1795433538
+  },
+  "postfix-relay": {
+   "version": "1.4.0",
+   "at": 1795433538
+  },
+  "postgresql": {
+   "version": "17.4.0",
+   "at": 1795433538
+  },
+  "privatebin": {
+   "version": "2.1.1",
+   "at": 1795433538
+  },
+  "project-nomad": {
+   "version": "1.35.1",
+   "at": 1795433538
+  },
+  "prowlarr": {
+   "version": "3.0.2",
+   "at": 1795433538
+  },
+  "psitransfer": {
+   "version": "2.4.1",
+   "at": 1795433538
+  },
+  "pyload": {
+   "version": "0.5.0",
+   "at": 1795433538
+  },
+  "qbittorrent": {
+   "version": "5.0.4",
+   "at": 1795433538
+  },
+  "qdirstat": {
+   "version": "1.8.1-ls82",
+   "at": 1795433538
+  },
+  "qui": {
+   "version": "1.28.0",
+   "at": 1795433538
+  },
+  "radarr": {
+   "version": "7.0.3",
+   "at": 1795433538
+  },
+  "rdtclient": {
+   "version": "2.0.136",
+   "at": 1795433538
+  },
+  "readarr": {
+   "version": "0.4.19",
+   "at": 1795433538
+  },
+  "recyclarr": {
+   "version": "8.8.1",
+   "at": 1795433538
+  },
+  "resilio-sync": {
+   "version": "3.1.2",
+   "at": 1795433538
+  },
+  "retroarch": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "roonserver": {
+   "version": "1.0.8",
+   "at": 1795433538
+  },
+  "rss": {
+   "version": "v2.2.5",
+   "at": 1795433538
+  },
+  "rsshub": {
+   "version": "2026-04-17",
+   "at": 1795433538
+  },
+  "sabnzbd": {
+   "version": "5.1.3",
+   "at": 1795433538
+  },
+  "scrypted": {
+   "version": "20",
+   "at": 1795433538
+  },
+  "searxng": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "seedsync": {
+   "version": "0.8.6",
+   "at": 1795433538
+  },
+  "seerr": {
+   "version": "v3.5.2",
+   "at": 1795433538
+  },
+  "semaphore": {
+   "version": "v2.20.24",
+   "at": 1795433538
+  },
+  "send": {
+   "version": "latest",
+   "at": 1795433538
+  },
+  "shlink": {
+   "version": "5.1.9",
+   "at": 1795433538
+  },
+  "sickchill": {
+   "version": "2023.6.27",
+   "at": 1795433538
+  },
+  "silverbullet": {
+   "version": "2.12.1",
+   "at": 1795433538
+  },
+  "siyuan": {
+   "version": "v3.8.11",
+   "at": 1795433538
+  },
+  "slskd": {
+   "version": "0.26.2",
+   "at": 1795433538
+  },
+  "smallweb": {
+   "version": "0.28.4",
+   "at": 1795433538
+  },
+  "smokeping": {
+   "version": "2.9.0",
+   "at": 1795433538
+  },
+  "snapdrop": {
+   "version": "0.0.0-version-eac78009",
+   "at": 1795433538
+  },
+  "snapotter": {
+   "version": "2.2.0",
+   "at": 1795433538
+  },
+  "sonarr": {
+   "version": "4.0.20",
+   "at": 1795433538
+  },
+  "spacedrive": {
+   "version": "0.4.2",
+   "at": 1795433538
+  },
+  "spoolman": {
+   "version": "0.27.1",
+   "at": 1795433538
+  },
+  "sshwifty": {
+   "version": "0.4.12",
+   "at": 1795433538
+  },
+  "stalwart-mail": {
+   "version": "v0.16.27",
+   "at": 1795433538
+  },
+  "stirling-pdf": {
+   "version": "3.4.0",
+   "at": 1795433538
+  },
+  "stremio": {
+   "version": "1.3.4",
+   "at": 1795433538
+  },
+  "sure": {
+   "version": "0.6.5-hotfix.1",
+   "at": 1795433538
+  },
+  "suwayomi": {
+   "version": "v2.4.2490",
+   "at": 1795433538
+  },
+  "swingmusic": {
+   "version": "2.1.4",
+   "at": 1795433538
+  },
+  "syncthing": {
+   "version": "2.1.7",
+   "at": 1795433538
+  },
+  "tailscale": {
+   "version": "v1.104.7",
+   "at": 1795433538
+  },
+  "tandoor": {
+   "version": "2.7.6",
+   "at": 1795433538
+  },
+  "taskingai": {
+   "version": "0.3.0",
+   "at": 1795433538
+  },
+  "tasks-md": {
+   "version": "3.3.0",
+   "at": 1795433538
+  },
+  "tautulli": {
+   "version": "2.19.1",
+   "at": 1795433538
+  },
+  "teable": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "threadfin": {
+   "version": "1.2.37",
+   "at": 1795433538
+  },
+  "tooljet": {
+   "version": "2.4.2",
+   "at": 1795433538
+  },
+  "traefik-certs-dumper": {
+   "version": "1.6.1",
+   "at": 1795433538
+  },
+  "transmission": {
+   "version": "4.1.4",
+   "at": 1795433538
+  },
+  "trilium": {
+   "version": "v0.107.0",
+   "at": 1795433538
+  },
+  "tubearchivist": {
+   "version": "v0.6.0",
+   "at": 1795433538
+  },
+  "umami-analytics": {
+   "version": "3.5.0",
+   "at": 1795433538
+  },
+  "unifi-controller": {
+   "version": "8.0.7",
+   "at": 1795433538
+  },
+  "unifi-network-application": {
+   "version": "10.4.57-ls133",
+   "at": 1795433538
+  },
+  "unmanic": {
+   "version": "staging",
+   "at": 1795433538
+  },
+  "uptime-kuma": {
+   "version": "2",
+   "at": 1795433538
+  },
+  "v2raya": {
+   "version": "2.2.7-5",
+   "at": 1795433538
+  },
+  "vaultwarden": {
+   "version": "1.37.5",
+   "at": 1795433538
+  },
+  "viewtube": {
+   "version": "0.17.0",
+   "at": 1795433538
+  },
+  "vikunja": {
+   "version": "2.8.0",
+   "at": 1795433538
+  },
+  "virt-manager": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "vocechat": {
+   "version": "0.5.17",
+   "at": 1795433538
+  },
+  "wallabag": {
+   "version": "2.6.14",
+   "at": 1795433538
+  },
+  "wallos": {
+   "version": "5.11.3",
+   "at": 1795433538
+  },
+  "watchyourlan": {
+   "version": "2.1.4",
+   "at": 1795433538
+  },
+  "webdav": {
+   "version": "0.0.1",
+   "at": 1795433538
+  },
+  "whoami": {
+   "version": "v1.12.0",
+   "at": 1795433538
+  },
+  "wiki-js": {
+   "version": "3.5.0",
+   "at": 1795433538
+  },
+  "wizarr": {
+   "version": "v2026.10.1",
+   "at": 1795433538
+  },
+  "wordpress": {
+   "version": "7.1.5",
+   "at": 1795433538
+  },
+  "write-freely": {
+   "version": "0.17",
+   "at": 1795433538
+  },
+  "your-spotify": {
+   "version": "1.20.0",
+   "at": 1795433538
+  },
+  "zerotier": {
+   "version": "1.14.2",
+   "at": 1795433538
+  },
+  "zipline-1": {
+   "version": "4.8.4",
+   "at": 1795433538
+  },
+  "ztnet": {
+   "version": "0.7.18",
+   "at": 1795433538
+  }
+ }
+}

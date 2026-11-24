@@ -337,6 +337,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) background(ctx context.Context) {
 	s.Apps.Recover()
 	go s.Store.KeepConnected(ctx, s.Apps.Reconcile)
+	go s.Apps.KeepDiscovery()
 	go func() {
 		s.Playit.EnsureAgent()
 		s.Playit.Refresh()

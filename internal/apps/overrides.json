@@ -1,5 +1,6 @@
 {
   "jellyfin": {
+    "discovery": [7359],
     "folders": {
       "${ROOT_FOLDER_HOST}/media/data": {
         "label": "Where are your films and series?",

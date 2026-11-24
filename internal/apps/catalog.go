@@ -81,6 +81,7 @@ type StoreApp struct {
 	SharingNote string       `json:"-"`
 	dir         string
 	images      []string // what it runs, for telling the same app in another catalog
+	discovery   []int    // UDP ports its own apps look for it on
 	fixedPort   int      // its page is on this port, whatever ZeroOS would pick
 }
 
@@ -103,6 +104,9 @@ type Catalog struct {
 type override struct {
 	Folders map[string]FolderNeed `json:"folders"`
 	Name    string                `json:"name"`
+	// Discovery are the UDP ports on which the app's own phone and TV apps
+	// shout into the home network to find it.
+	Discovery []int `json:"discovery"`
 }
 
 func NewCatalog(c *core.Core) *Catalog {
@@ -365,8 +369,11 @@ func (cat *Catalog) loadDir(apps map[string]*StoreApp, root, catalog string) {
 				a.fixedPort = rc.Port
 			}
 		}
-		if o, ok := cat.over[a.ID]; ok && o.Name != "" {
-			a.Name = o.Name
+		if o, ok := cat.over[a.ID]; ok {
+			if o.Name != "" {
+				a.Name = o.Name
+			}
+			a.discovery = o.Discovery
 		}
 		apps[a.ID] = a
 	}

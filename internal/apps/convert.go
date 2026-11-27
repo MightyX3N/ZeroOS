@@ -182,6 +182,7 @@ type buildInput struct {
 	GPU       bool              // pass the graphics chip in
 	RenderGID int
 	Custom    *customInfo // set for an app of your own: its compose file is kept as written where possible
+	LAN       *LANLease   // the main part's address on the home network
 }
 
 var varRe = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)(:-[^}]*)?\}`)
@@ -268,13 +269,95 @@ func (p *composePlan) namedVolumes() []string {
 
 // Build returns the docker-compose.yml content.
 func (p *composePlan) Build(in buildInput) ([]byte, error) {
+	main := p.lanService(in)
 	var doc map[string]any
 	if p.yamlDoc != nil {
 		doc = p.buildFromYAML(in)
 	} else {
 		doc = p.buildFromJSON(in)
 	}
+	if in.LAN != nil && main != "" {
+		joinLAN(doc, main, in.LAN)
+	}
 	return yaml.Marshal(doc)
+}
+
+// lanService is the part of the app that joins the home network: its main
+// part, unless that already runs on the computer's own network.
+func (p *composePlan) lanService(in buildInput) string {
+	if p.yamlDoc != nil {
+		services, _ := p.yamlDoc["services"].(map[string]any)
+		ok := func(n string) string {
+			sm, _ := services[n].(map[string]any)
+			if sm == nil {
+				return ""
+			}
+			if nm, _ := sm["network_mode"].(string); nm != "" {
+				return ""
+			}
+			return n
+		}
+		for n, s := range services {
+			sm, _ := s.(map[string]any)
+			x, _ := sm["x-runtipi"].(map[string]any)
+			if main, _ := x["is_main"].(bool); main {
+				return ok(n)
+			}
+		}
+		if in.Custom != nil && in.Custom.Page.Kind == "port" && in.Custom.Page.Service != "" {
+			return ok(in.Custom.Page.Service)
+		}
+		if len(services) == 1 {
+			for n := range services {
+				return ok(n)
+			}
+		}
+		return ""
+	}
+	for _, s := range p.services {
+		if s.IsMain {
+			if s.NetworkMode != "" {
+				return ""
+			}
+			return s.Name
+		}
+	}
+	if len(p.services) == 1 && p.services[0].NetworkMode == "" {
+		return p.services[0].Name
+	}
+	return ""
+}
+
+// joinLAN puts a service on the home network too, with its own address. It
+// stays on the app's private network, where its other parts find it.
+func joinLAN(doc map[string]any, name string, l *LANLease) {
+	services, _ := doc["services"].(map[string]any)
+	svc, _ := services[name].(map[string]any)
+	if svc == nil {
+		return
+	}
+	nets := map[string]any{}
+	switch v := svc["networks"].(type) {
+	case []any:
+		for _, n := range v {
+			nets[fmt.Sprint(n)] = nil
+		}
+	case map[string]any:
+		for k, n := range v {
+			nets[k] = n
+		}
+	}
+	if len(nets) == 0 {
+		nets["default"] = nil
+	}
+	nets[lanNet] = map[string]any{"ipv4_address": l.IP, "mac_address": l.MAC}
+	svc["networks"] = nets
+	top, _ := doc["networks"].(map[string]any)
+	if top == nil {
+		top = map[string]any{}
+	}
+	top[lanNet] = map[string]any{"external": true, "name": lanNet}
+	doc["networks"] = top
 }
 
 func (p *composePlan) restartPolicy(in buildInput) string {

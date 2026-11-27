@@ -723,5 +723,29 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	snap := s.sys.snapshot(s.C.Cfg.DataDir)
 	snap["addresses"] = s.WebAddresses()
+	ready, iface, why := s.Apps.LANStatus()
+	snap["lan"] = map[string]any{"on": s.Apps.LANOn(), "ready": ready, "iface": iface, "why": why}
 	ok(w, snap)
+}
+
+// systemLAN turns the apps' own addresses on the home network on or off.
+func (s *Server) systemLAN(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		On bool `json:"on"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		failErr(w, err)
+		return
+	}
+	v := "on"
+	if !in.On {
+		v = "off"
+	}
+	if err := s.C.SetSetting("lan.apps", v); err != nil {
+		failErr(w, err)
+		return
+	}
+	s.log(r, map[bool]string{true: "gave apps their own address on the home network", false: "took apps off the home network"}[in.On], "", "", true, "")
+	go s.Apps.ApplyLAN()
+	ok(w, map[string]bool{"ok": true})
 }

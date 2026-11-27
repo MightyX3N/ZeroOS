@@ -64,6 +64,10 @@ type AppSettings struct {
 	Desired string            `json:"desired"`           // running or stopped
 	Version string            `json:"version,omitempty"` // the version it runs
 	Undo    *UndoPoint        `json:"undo,omitempty"`    // copy kept for undoing the last update
+	// LAN is the app's own address on the home network.
+	LAN *LANLease `json:"lan,omitempty"`
+	// LastLAN is the address it had before, asked for again so it keeps it.
+	LastLAN string `json:"lastLan,omitempty"`
 	// NoBackup leaves the app out of the automatic backups.
 	NoBackup bool `json:"noBackup,omitempty"`
 }
@@ -87,11 +91,14 @@ type Manager struct {
 
 	plain map[string]bool // apps the catalog calls https-only that turned out to speak plain http
 
-	backupsRunning atomic.Bool // the backups of all apps are being made
+	backupsRunning atomic.Bool
+	lanNetMu       sync.Mutex
+	lanNext        map[string]time.Time     // when an app without a home address may ask again
+	lanWait        map[string]time.Duration // how long it waited last time // the backups of all apps are being made
 }
 
 func NewManager(c *core.Core, cat *Catalog, st *storage.Storage) *Manager {
-	return &Manager{c: c, cat: cat, st: st, jobs: map[string]*Job{}, frame: map[string]bool{}, busy: map[string]bool{}, newer: map[string]bool{}, plain: map[string]bool{}}
+	return &Manager{c: c, cat: cat, st: st, jobs: map[string]*Job{}, frame: map[string]bool{}, busy: map[string]bool{}, newer: map[string]bool{}, plain: map[string]bool{}, lanNext: map[string]time.Time{}, lanWait: map[string]time.Duration{}}
 }
 
 func (m *Manager) appDir(id string) string { return filepath.Join(m.c.Cfg.AppsDir(), id) }
@@ -475,6 +482,7 @@ func (m *Manager) writeCompose(id string, firstTime bool) error {
 	if cfg, ok := readCustom(m.recipeDir(id)); ok {
 		in.Custom = &cfg.Custom
 	}
+	in.LAN = m.lanFor(a, plan.lanService(in) != "")
 	for key, p := range a.Folders {
 		real, err := m.st.Resolve(p.Root, p.Path)
 		if err != nil {
@@ -824,6 +832,9 @@ func (m *Manager) Remove(id string, deleteData bool) error {
 		}
 	}
 	m.dropKeptImages(id)
+	if a, err := m.Get(id); err == nil {
+		m.dropLAN(a, true)
+	}
 	if deleteData {
 		_ = os.RemoveAll(m.appDir(id))
 	}
@@ -1134,6 +1145,9 @@ func (m *Manager) hasHook(id, name string) bool {
 
 // hostIP is this computer's address on the home network.
 func hostIP() string {
+	if h := findHome(); h.HostIP != nil { // the mini PC's address on the home network
+		return h.HostIP.String()
+	}
 	conn, err := net.Dial("udp", "192.168.0.1:80")
 	if err == nil {
 		defer conn.Close()

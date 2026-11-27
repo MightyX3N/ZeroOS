@@ -67,7 +67,7 @@ func (m *Manager) discoveryPorts() map[int][]string {
 	}
 	for _, a := range list {
 		sa, ok := m.cat.Get(a.StoreID)
-		if !ok || a.State != "running" {
+		if !ok || a.State != "running" || a.Settings.LAN != nil { // on the home network itself, it answers by itself
 			continue
 		}
 		for _, p := range sa.discovery {

@@ -185,6 +185,7 @@ func (s *Server) Handler() http.Handler {
 	// desktop
 	mux.HandleFunc("GET /api/desktop", s.signedIn(s.desktop))
 	mux.HandleFunc("GET /api/system", s.need("system.view", s.system))
+	mux.HandleFunc("PUT /api/system/lan", s.need("system.manage", s.systemLAN))
 	mux.HandleFunc("GET /api/activity", s.signedIn(s.activity))
 
 	// store
@@ -338,6 +339,7 @@ func (s *Server) background(ctx context.Context) {
 	s.Apps.Recover()
 	go s.Store.KeepConnected(ctx, s.Apps.Reconcile)
 	go s.Apps.KeepDiscovery()
+	go s.Apps.KeepLAN()
 	go func() {
 		s.Playit.EnsureAgent()
 		s.Playit.Refresh()
